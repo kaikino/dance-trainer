@@ -1,0 +1,16 @@
+{
+  "id": 1,
+  "name": "Box step",
+  "bpm": 100,
+  "count_in_beats": 4,
+  "loop": true,
+  "repeats": 8,
+  "steps": [
+    {"beat": 1.0, "foot": "L", "class": "forward"},
+    {"beat": 2.0, "foot": "R", "class": "side_out"},
+    {"beat": 3.0, "foot": "L", "class": "in_place"},
+    {"beat": 4.0, "foot": "R", "class": "back"},
+    {"beat": 5.0, "foot": "L", "class": "side_out"},
+    {"beat": 6.0, "foot": "R", "class": "in_place"}
+  ]
+}

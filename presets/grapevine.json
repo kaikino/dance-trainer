@@ -1,0 +1,18 @@
+{
+  "id": 2,
+  "name": "Grapevine",
+  "bpm": 110,
+  "count_in_beats": 4,
+  "loop": true,
+  "repeats": 8,
+  "steps": [
+    {"beat": 1.0, "foot": "R", "class": "side_out"},
+    {"beat": 2.0, "foot": "L", "class": "cross"},
+    {"beat": 3.0, "foot": "R", "class": "side_out"},
+    {"beat": 4.0, "foot": "L", "class": "in_place"},
+    {"beat": 5.0, "foot": "L", "class": "side_out"},
+    {"beat": 6.0, "foot": "R", "class": "cross"},
+    {"beat": 7.0, "foot": "L", "class": "side_out"},
+    {"beat": 8.0, "foot": "R", "class": "in_place"}
+  ]
+}
