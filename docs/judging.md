@@ -1,6 +1,6 @@
-# Judging by reference motion
+# Judging by reference motion (future direction, not the current plan)
 
-Decision (Oct 30): the dancer is judged by how closely their ankle motion
+Proposal (Oct 30, parked): the dancer would be judged by how closely their ankle motion
 follows a recorded reference performance of the routine, continuously,
 in time with the music. There is no step vocabulary, no strike detector in
 the judging path, and no labeled training set. Any routine that can be
