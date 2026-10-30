@@ -134,13 +134,14 @@ not build the laptop web client; it was cut.
 
 ---
 
-## 4. Live judge: deviation from a template (week 6)
+## 4. Live judge: deviation from a reference performance (week 6)
 
-Lead: Kai with Zoe. Decision (Oct 29): the live buzz is a *deviation
-score*, not a class. On each strike the node measures how far the window
-is from the template of the step the schedule expected, and buzzes when
-the distance is over a threshold. It never needs to know what the wrong
-step was; that is the summary's job.
+Lead: Kai with Zoe. Decision (Oct 30, supersedes Oct 29): the live buzz
+is a continuous *deviation score* against a recorded reference
+performance of the routine, compared in time with the music. No step
+vocabulary, no strike detector in the judging path. Full design in
+`docs/judging.md`. The step list below is the old template plan and is
+kept only for the attribute and timing items; read judging.md first.
 
 1. First get timing-only judging working: a strike on the right foot
    inside the beat window is correct, no classifier at all. This is the
@@ -266,7 +267,15 @@ and polish, in that order.
 
 ## Decisions so far
 
-- Oct 29: live feedback = deviation from a per-dancer template of the
+- Oct 30: judging is by continuous comparison against a recorded
+  reference performance, in the foot frame, aligned to the music clock
+  with a bounded timing search; retrospective scoring is full DTW against
+  the same reference. No step classes, no strike detector in the judging
+  path, no labeled training set required. Any routine with a reference
+  take is supported, including routines that travel. See
+  `docs/judging.md`. Record-by-demonstration is now core, not stretch.
+- Oct 29 (superseded on the live side, kept for the summary): live
+  feedback = deviation from a per-dancer template of the
   expected step, plus size and turn as numbers with tolerances. Timing-only
   judging is the floor. Retrospective scoring on the phone = sequence
   alignment (step markers) + whole-performance DTW against a reference
