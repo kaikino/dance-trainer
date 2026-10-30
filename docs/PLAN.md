@@ -114,32 +114,60 @@ screen is testable on its own against a real node.
 8. **Performance mode + score.** Keep going on errors; count them.
 9. **Practice mode.** On an error, pause music and the chart, rewind to the
    start of the measure, resume.
-10. **Session summary.** End-of-session screen: accuracy, mean timing error,
-    errors by foot and by step class. From `events.csv`.
+10. **Session summary, first version.** Totals from the live verdicts:
+    accuracy, mean timing error, errors by foot. From `events.csv`.
+11. **Retrospective scoring (after the MVP gate).** Two passes over the
+    stored session, both on the phone:
+    - *Sequence alignment.* Edit-distance alignment of the detected step
+      list against the schedule. Separates one skipped step that shifted
+      everything from a string of genuinely wrong steps. Produces the
+      wrong / missed / extra markers.
+    - *Whole-performance similarity.* Dynamic time warping of the full
+      IMU streams against a reference recording of the routine (a
+      teammate who can dance it cleanly). The local distance along the
+      warped path, inverted to a percentage, is the accuracy-over-time
+      curve: x = song time, y = similarity, step markers from the
+      alignment on the same axis. This chart is the summary screen.
 
 Big screen: mirror the phone with Chromecast or a USB-C to HDMI cable. Do
 not build the laptop web client; it was cut.
 
 ---
 
-## 4. Rule-based judge end to end (week 6)
+## 4. Live judge: deviation from a template (week 6)
 
-Lead: Kai with Zoe. This is the fallback and the MVP, so it ships first.
+Lead: Kai with Zoe. Decision (Oct 29): the live buzz is a *deviation
+score*, not a class. On each strike the node measures how far the window
+is from the template of the step the schedule expected, and buzzes when
+the distance is over a threshold. It never needs to know what the wrong
+step was; that is the summary's job.
 
-1. Build the firmware with `make CLASSIFIER=rules`. Dance the box step with
-   both nodes on; watch verdicts in the app.
+1. First get timing-only judging working: a strike on the right foot
+   inside the beat window is correct, no classifier at all. This is the
+   floor and the Nov 3 demo if nothing else is ready.
 2. Tune the strike detector thresholds in `stepdet.c` on real feet, not on
    synthetic data. Check that each real step produces exactly one strike.
-3. Tune the rules in `rules.c` until forward / back / side / in place are
-   right most of the time for the three of us. Keep `ml/dt/baseline.py`
-   identical (`ml/tests/test_rules_parity.py` checks this).
-4. Tune the judge timing window in `judge.c` so correct dancing at 100 bpm
+   Everything below depends on this.
+3. Templates. Extend calibration: after the still pose and the forward
+   slide, the dancer does each step in the chosen routine three times on
+   cue from the app. The node stores the mean window per step per foot in
+   flash. Keep this under a minute and let a stored profile carry over
+   between sessions, or people will skip it.
+4. Distance. Start with Euclidean distance on the normalised window; move
+   to dynamic time warping if early/late steps score as wrong. Both fit
+   the node's budget for a 60×9 window. Store the per-dancer threshold
+   from the spread of the calibration windows.
+5. Attributes outside the distance: displacement magnitude (step size)
+   and turn angle from the gyro, judged as numbers with tolerances set
+   at calibration. This is how "wide right vs small right" is scored.
+6. Fallback for an uncalibrated dancer: the rule classifier in `rules.c`
+   (`make CLASSIFIER=rules`), matched against the expected class.
+7. Tune the judge timing window in `judge.c` so correct dancing at 100 bpm
    does not buzz. Start lenient. A wrong buzz is worse than a missed one.
-5. Measure strike-to-buzz latency from node timestamps. Record it.
+8. Measure strike-to-buzz latency from node timestamps. Record it.
 
-Done when: wrong foot or a badly late step buzzes the right ankle, and
-dancing it correctly does not buzz. Show this at the Nov 3 status
-presentation if ready, otherwise the stream + motor demo.
+Done when: wrong foot, wrong direction, or a badly late step buzzes the
+right ankle, and dancing it correctly does not buzz.
 
 ---
 
@@ -164,22 +192,28 @@ Lead: Kai. Everyone recruits two dancers by week 6.
 
 ---
 
-## 6. Train and ship the model (week 7–8)
+## 6. The learned classifier (week 7–8)
 
-Lead: Kai.
+Lead: Kai. With deviation scoring doing the live buzz, the classifier's
+jobs are (a) naming the mistake in the summary and (b) the comparison
+section of the report. The collected windows serve both.
 
 1. `train.py runs/windows.npz`: leave-one-dancer-out cross-validation.
    Read the confusion matrix. Merge classes the data cannot separate
    (cross vs side, kick vs none) rather than fighting them.
-2. Ship only if the model beats the rule baseline on held-out dancers.
-   Otherwise the rules stay and you collect more data.
-3. `export.py runs/model.keras runs/windows.npz` writes
-   `firmware/dance_node/src/model_weights.h` and selftest vectors. Commit
-   both with the training run's numbers in the message.
-4. `make` (CNN build), flash, `selftest` matches `export.py --selftest`.
+2. Also try hand-made features (displacement per axis, peak accel, swing
+   duration, turn angle, landing hardness) with a decision tree or random
+   forest. With a few hundred windows this will likely beat the CNN and
+   is easier to explain in the report.
+3. Report rules vs features vs CNN vs nearest-template on the same
+   held-out dancers. That table is the ML section of the final report.
+4. If one beats the rules clearly, export it to the node as the fallback
+   classifier: `export.py runs/model.keras runs/windows.npz` writes
+   `firmware/dance_node/src/model_weights.h` and selftest vectors. `make`,
+   flash, `selftest` must match `export.py --selftest`;
    `ml/tests/test_cnn_parity.py` passes.
-5. Dance it. Compare buzz behaviour to the rules build on the same routine.
-   Set the confidence threshold so correct steps are not flagged.
+5. The summary's "you did X instead of Y" uses nearest-template on the
+   phone, with the trained classifier as a cross-check.
 6. Repeat from step 1 as more data arrives through week 8.
 
 ---
@@ -202,8 +236,10 @@ and polish, in that order.
 
 ## 8. Finish and evaluate (week 8–10)
 
-1. Week 8: trained model on the node (step 6), Practice mode, session
-   summary. Second preset (grapevine) working.
+1. Week 8: retrospective scoring (step 3.11: alignment and the
+   similarity-over-time chart), Practice mode, classifier comparison
+   (step 6). Record the reference performance for each preset. Second
+   preset (grapevine) working.
 2. Week 9 (short week): film three dancers who were not in the training
    data. Compute accuracy, timing error, false-buzz rate from their
    `events.csv`. These are the numbers for the report. Battery run-down
@@ -227,6 +263,16 @@ and polish, in that order.
 | Dec 15 | Final report + peer review 2 | Numbers from step 8.2; start the outline in week 9 |
 
 ---
+
+## Decisions so far
+
+- Oct 29: live feedback = deviation from a per-dancer template of the
+  expected step, plus size and turn as numbers with tolerances. Timing-only
+  judging is the floor. Retrospective scoring on the phone = sequence
+  alignment (step markers) + whole-performance DTW against a reference
+  recording (accuracy-over-time curve). The trained classifier names
+  mistakes in the summary and is compared in the report; it is not what
+  triggers the buzz.
 
 ## Rules of the road
 
