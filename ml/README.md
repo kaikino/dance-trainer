@@ -1,7 +1,7 @@
 # ML pipeline
 
 ```
-python3 -m venv .venv && . .venv/bin/activate
+python3.12 -m venv .venv && . .venv/bin/activate   # TensorFlow 2.17 needs Python 3.10-3.12, not 3.13+
 pip install -r requirements.txt
 ```
 
