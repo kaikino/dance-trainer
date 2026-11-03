@@ -28,8 +28,11 @@ case "${1:-}" in
     echo "created $AVD"
     ;;
   boot)
-    nohup emulator -avd "$AVD" -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect \
-      -no-snapshot >/tmp/emulator.log 2>&1 &
+    # Own session (setsid via perl, macOS has no setsid) so the emulator outlives
+    # the shell that started it, even if that shell's process group is killed.
+    nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' -- \
+      "$ANDROID_HOME/emulator/emulator" -avd "$AVD" -no-window -no-audio -no-boot-anim \
+      -gpu swiftshader_indirect -no-snapshot </dev/null >/tmp/emulator.log 2>&1 &
     echo "emulator starting (log /tmp/emulator.log)"
     adb wait-for-device
     until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do sleep 2; done
