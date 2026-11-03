@@ -19,8 +19,13 @@ class Preset {
   final double bpm;
   final int countInBeats;
   final List<PresetStep> steps; // expanded over `repeats`
+  final String? music; // file name under assets/music/, or null for a metronome
 
-  const Preset(this.id, this.name, this.bpm, this.countInBeats, this.steps);
+  const Preset(this.id, this.name, this.bpm, this.countInBeats, this.steps, {this.music});
+
+  /// Same routine at a scaled tempo (Practice mode slow-down).
+  Preset withTempo(double factor) =>
+      Preset(id, name, bpm * factor, countInBeats, steps, music: music);
 
   static Future<Preset> loadAsset(String path) async =>
       Preset.fromJson(jsonDecode(await rootBundle.loadString(path)) as Map<String, dynamic>);
@@ -41,7 +46,7 @@ class Preset {
       }
     }
     return Preset(j['id'] as int, j['name'] as String, (j['bpm'] as num).toDouble(),
-        j['count_in_beats'] as int? ?? 4, steps);
+        j['count_in_beats'] as int? ?? 4, steps, music: j['music'] as String?);
   }
 
   double get beatMs => 60000 / bpm;

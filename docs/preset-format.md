@@ -27,5 +27,6 @@ step chart and to build the per-node schedule (see `docs/ble-protocol.md`).
 | `steps[].beat` | 1-based, fractional allowed (1.5 = the "and") |
 | `steps[].foot` | `L` or `R` |
 | `steps[].class` | one of the step classes in README |
+| `music` | optional: file name under `app/assets/music/`; without it the app plays a generated metronome (clicks on every beat, accent on 1) |
 
 Beat `b` happens at `t0 + (b − 1) × 60000 / bpm` ms.

@@ -16,6 +16,7 @@ dependencies:
   path_provider: ^2.1.4
   path: ^1.9.0
   fl_chart: ^0.69.0
+  share_plus: ^10.1.0
   web_socket_channel: ^3.0.1
   shelf: ^1.4.2
   shelf_web_socket: ^2.0.0
