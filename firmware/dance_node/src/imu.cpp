@@ -50,7 +50,15 @@ static void drdy_isr(void)
 
 bool imu_init(void)
 {
+    // The IMU's supply comes from P1.08 itself, so the pin must be in the nRF52's
+    // high-drive mode. Standard drive (plain pinMode) browns the IMU out and the
+    // first I2C transfer hangs with no error. Verified on hardware 2026-11-02.
     pinMode(BOARD_IMU_PWR, OUTPUT);
+    NRF_P1->PIN_CNF[8] = ((uint32_t)NRF_GPIO_PIN_DIR_OUTPUT << GPIO_PIN_CNF_DIR_Pos)
+                       | ((uint32_t)NRF_GPIO_PIN_INPUT_DISCONNECT << GPIO_PIN_CNF_INPUT_Pos)
+                       | ((uint32_t)NRF_GPIO_PIN_NOPULL << GPIO_PIN_CNF_PULL_Pos)
+                       | ((uint32_t)NRF_GPIO_PIN_H0H1 << GPIO_PIN_CNF_DRIVE_Pos)
+                       | ((uint32_t)NRF_GPIO_PIN_NOSENSE << GPIO_PIN_CNF_SENSE_Pos);
     digitalWrite(BOARD_IMU_PWR, HIGH);
     delay(20);   // boot time after power-up, datasheet 15 ms
     BOARD_IMU_WIRE.begin();

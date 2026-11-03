@@ -6,8 +6,13 @@
 //   python3 tools/imu_plot.py /dev/cu.usbmodemXXXX     (live plot)
 //
 // Output lines:  t_ms,ax,ay,az,gx,gy,gz   (g and deg/s)
+//
+// Gotcha found on hardware (Nov 2): the IMU is powered from GPIO P1.08, and that
+// pin must be in the nRF52's high-drive mode (H0H1). A plain pinMode/digitalWrite
+// gives standard drive, the IMU browns out, and the first I2C transaction hangs
+// forever with no error. Seeed's LSM6DS3 library does the same register write.
 
-#include <Adafruit_TinyUSB.h>
+#include <Adafruit_TinyUSB.h>   // required for Serial on this core
 #include <Wire.h>
 
 #define IMU_WIRE  Wire1                    // internal bus to the IMU
@@ -39,19 +44,26 @@ static bool rd(uint8_t reg, uint8_t *buf, size_t n) {
   return true;
 }
 
+static void imu_power_on() {
+  pinMode(IMU_PWR, OUTPUT);
+  // High-drive output: the IMU draws its supply current through this pin.
+  NRF_P1->PIN_CNF[8] = ((uint32_t)NRF_GPIO_PIN_DIR_OUTPUT << GPIO_PIN_CNF_DIR_Pos)
+                     | ((uint32_t)NRF_GPIO_PIN_INPUT_DISCONNECT << GPIO_PIN_CNF_INPUT_Pos)
+                     | ((uint32_t)NRF_GPIO_PIN_NOPULL << GPIO_PIN_CNF_PULL_Pos)
+                     | ((uint32_t)NRF_GPIO_PIN_H0H1 << GPIO_PIN_CNF_DRIVE_Pos)
+                     | ((uint32_t)NRF_GPIO_PIN_NOSENSE << GPIO_PIN_CNF_SENSE_Pos);
+  digitalWrite(IMU_PWR, HIGH);
+  delay(20);   // datasheet boot time is 15 ms
+}
+
 void setup() {
   Serial.begin(115200);
   uint32_t t0 = millis();
   while (!Serial && millis() - t0 < 3000) {}   // wait for the monitor, but not forever
 
-  Serial.println("# step 1: power on IMU");
-  pinMode(IMU_PWR, OUTPUT);
-  digitalWrite(IMU_PWR, HIGH);
-  delay(50);
-  Serial.println("# step 2: Wire1.begin");
+  imu_power_on();
   IMU_WIRE.begin();
-  IMU_WIRE.setClock(100000);
-  Serial.println("# step 3: WHO_AM_I");
+  IMU_WIRE.setClock(400000);
 
   uint8_t who = 0;
   if (!rd(REG_WHO_AM_I, &who, 1)) {
