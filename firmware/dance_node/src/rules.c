@@ -24,8 +24,8 @@ dt_step_class_t rules_classify(const step_window_t *w, uint8_t *confidence)
 
     if (mag < RULE_MOVE_MIN) { *confidence = 200; return DT_CLASS_IN_PLACE; }
 
-    // Body frame after calibration: +x forward, +y toward the outside of this foot.
-    // TODO: left/right mirroring once calibration defines the body frame.
+    // Foot frame after calibration: +x forward, +y toward the outside of this foot
+    // (fusion.c mirrors the right foot, so the same rules serve both).
     if (fabsf(dx) >= fabsf(dy)) {
         if (dx > 0) return mag > RULE_KICK_MIN ? DT_CLASS_KICK : DT_CLASS_FORWARD;
         return DT_CLASS_BACK;
