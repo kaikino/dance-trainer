@@ -3,18 +3,18 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import 'fake_node.dart';
 import 'protocol.dart';
 
-/// One ankle node. Wraps the GATT characteristics from docs/ble-protocol.md.
-class NodeClient extends ChangeNotifier {
+/// One ankle node, as the rest of the app sees it. [BleNodeClient] talks to a
+/// real node over GATT (docs/ble-protocol.md); [FakeNodeClient] simulates one
+/// in-process for testing on an emulator or desktop with no hardware.
+abstract class NodeClient extends ChangeNotifier {
   NodeClient(this.role);
 
   final Role role;
-  BluetoothDevice? _device;
-  BluetoothCharacteristic? _status, _timeSync, _schedule, _control, _stepEvent, _stream;
-
   Status? status;
-  bool get connected => _device?.isConnected ?? false;
+  bool get connected;
   String get name => role == Role.left ? 'DT-L' : 'DT-R';
   String get roleLabel => role == Role.left ? 'L' : 'R';
 
@@ -25,6 +25,34 @@ class NodeClient extends ChangeNotifier {
   final _batches = StreamController<StreamBatch>.broadcast();
   Stream<StepEvent> get events => _events.stream;
   Stream<StreamBatch> get batches => _batches.stream;
+
+  @protected
+  void emitEvent(StepEvent e) => _events.add(e);
+  @protected
+  void emitBatch(StreamBatch b) => _batches.add(b);
+
+  int appMsToNodeUs(int tAppMs) => tAppMs * 1000 + offsetUs!;
+
+  Future<int> syncTime({int rounds = 8});
+  Future<void> pushSchedule(int presetId, double bpm, List<(double, StepClass)> steps);
+  Future<void> start(Mode mode, int t0AppMs);
+  Future<void> stop();
+  Future<void> calibrate();
+  Future<void> buzzTest(Haptic h);
+  Future<void> setThreshold(int conf);
+  Future<void> setWindow(int ms);
+  Future<void> disconnect();
+}
+
+/// A real node over Bluetooth LE.
+class BleNodeClient extends NodeClient {
+  BleNodeClient(super.role);
+
+  BluetoothDevice? _device;
+  BluetoothCharacteristic? _status, _timeSync, _schedule, _control, _stepEvent, _stream;
+
+  @override
+  bool get connected => _device?.isConnected ?? false;
 
   Future<void> connect(BluetoothDevice device) async {
     _device = device;
@@ -51,9 +79,9 @@ class NodeClient extends ChangeNotifier {
       notifyListeners();
     });
     await _stepEvent!.setNotifyValue(true);
-    _stepEvent!.onValueReceived.listen((b) => _events.add(StepEvent.parse(b)));
+    _stepEvent!.onValueReceived.listen((b) => emitEvent(StepEvent.parse(b)));
     await _stream!.setNotifyValue(true);
-    _stream!.onValueReceived.listen((b) => _batches.add(StreamBatch.parse(b)));
+    _stream!.onValueReceived.listen((b) => emitBatch(StreamBatch.parse(b)));
     await _timeSync!.setNotifyValue(true);
 
     device.connectionState.listen((_) => notifyListeners());
@@ -61,6 +89,7 @@ class NodeClient extends ChangeNotifier {
   }
 
   /// 8 round trips, keep the one with the smallest RTT.
+  @override
   Future<int> syncTime({int rounds = 8}) async {
     int? best, bestRtt;
     for (var i = 0; i < rounds; i++) {
@@ -79,38 +108,54 @@ class NodeClient extends ChangeNotifier {
     return best!;
   }
 
-  int appMsToNodeUs(int tAppMs) => tAppMs * 1000 + offsetUs!;
-
+  @override
   Future<void> pushSchedule(int presetId, double bpm, List<(double, StepClass)> steps) async {
     for (final chunk in encodeSchedule(presetId, bpm, steps)) {
       await _schedule!.write(chunk);
     }
   }
 
+  @override
   Future<void> start(Mode mode, int t0AppMs) =>
       _control!.write(encodeStart(mode, appMsToNodeUs(t0AppMs)));
+  @override
   Future<void> stop() => _control!.write(encodeCmd(Cmd.stop));
+  @override
   Future<void> calibrate() => _control!.write(encodeCmd(Cmd.calibrate));
+  @override
   Future<void> buzzTest(Haptic h) => _control!.write(encodeCmd(Cmd.buzzTest, [h.index]));
+  @override
   Future<void> setThreshold(int conf) => _control!.write(encodeCmd(Cmd.setThreshold, [conf]));
+  @override
   Future<void> setWindow(int ms) => _control!.write(encodeSetWindow(ms));
 
+  @override
   Future<void> disconnect() => _device?.disconnect() ?? Future.value();
 }
 
-/// Both nodes. Scans for DT-L and DT-R and connects each.
+/// Both nodes. Scans for DT-L and DT-R and connects each. With `fake: true`
+/// (build with --dart-define=FAKE_NODES=true) two simulated nodes are used.
 class NodeManager extends ChangeNotifier {
-  final left = NodeClient(Role.left);
-  final right = NodeClient(Role.right);
-  List<NodeClient> get nodes => [left, right];
-
-  NodeManager() {
+  NodeManager({this.fake = false})
+      : left = fake ? FakeNodeClient(Role.left) : BleNodeClient(Role.left),
+        right = fake ? FakeNodeClient(Role.right) : BleNodeClient(Role.right) {
     for (final n in nodes) {
       n.addListener(notifyListeners);
     }
   }
 
+  final bool fake;
+  final NodeClient left;
+  final NodeClient right;
+  List<NodeClient> get nodes => [left, right];
+
   Future<void> scanAndConnect() async {
+    if (fake) {
+      for (final n in nodes) {
+        await (n as FakeNodeClient).connect();
+      }
+      return;
+    }
     await FlutterBluePlus.startScan(
       withNames: ['DT-L', 'DT-R'],
       timeout: const Duration(seconds: 8),
@@ -120,7 +165,7 @@ class NodeManager extends ChangeNotifier {
       for (final r in results) {
         final name = r.advertisementData.advName;
         if (!seen.add(name)) continue;
-        final node = name == 'DT-L' ? left : right;
+        final node = (name == 'DT-L' ? left : right) as BleNodeClient;
         if (!node.connected) unawaited(node.connect(r.device));
       }
       if (seen.length == 2) break;

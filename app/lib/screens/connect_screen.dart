@@ -89,7 +89,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('Switch both ankle nodes on, then scan.'),
+          Text(m.fake
+              ? 'Simulated nodes (FAKE_NODES build). Scan connects two fake ankles.'
+              : 'Switch both ankle nodes on, then scan.'),
           const SizedBox(height: 12),
           for (final n in m.nodes) _nodeCard(n),
           const SizedBox(height: 24),
