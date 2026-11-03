@@ -14,12 +14,17 @@ extern QueueHandle_t haptic_q;   // cue the dancer between calibration phases
 #define CAL_NAME "cal2"
 #define DEG2RAD  0.017453292519943f
 
-// Slide-forward gesture detection (phase 2 of calibration).
-#define FWD_WAIT_MS       5000   // how long we wait for the foot to start moving
+// Slide-forward gesture detection (phase 2 of calibration). Velocity is the
+// leaky integral of world-frame horizontal acceleration (time constant
+// FWD_LEAK_S), so bias does not accumulate while waiting; a slide, even a slow
+// one, builds speed past FWD_ONSET_SPEED. From onset, integrate without leak
+// for FWD_INTEGRATE_MS and take the direction at peak speed.
+#define FWD_WAIT_MS       8000   // how long we wait for the foot to start moving
 #define FWD_SETTLE_MS      300   // ignore motion right after the cue buzz
-#define FWD_ONSET_G       0.35f  // horizontal |a_world| that counts as "moving"
-#define FWD_INTEGRATE_MS   700   // integrate velocity this long after onset
-#define FWD_MIN_SPEED     0.015f // g·s (≈0.15 m/s): slower than this is not a slide
+#define FWD_LEAK_S         0.5f  // leak time constant while waiting
+#define FWD_ONSET_SPEED   0.008f // g·s (≈0.08 m/s) counts as "moving"
+#define FWD_INTEGRATE_MS   800   // integrate velocity this long after onset
+#define FWD_MIN_SPEED     0.012f // g·s (≈0.12 m/s): slower than this is not a slide
 
 typedef struct {
     float gyro_bias[3];      // dps, in the leveled frame
@@ -214,6 +219,7 @@ static bool calibrate_forward(void)
     TickType_t t_start = xTaskGetTickCount();
     bool moving = false;
     float v[2] = {0, 0}, v_best = 0, v_dir[2] = {1, 0}, x_dir[2] = {1, 0};
+    float a_max = 0, v_wait_max = 0;
     uint32_t onset_t_us = 0, last_t_us = 0;
     fused_sample_t f;
 
@@ -229,19 +235,26 @@ static bool calibrate_forward(void)
             q_rotate(q, a, a_w);
             float xs[3] = {1, 0, 0}, xw[3];
             q_rotate(q, xs, xw);
+            float dt = last_t_us ? (f.t_us - last_t_us) * 1e-6f : 0.01f;
+            last_t_us = f.t_us;
             float ah = sqrtf(a_w[0] * a_w[0] + a_w[1] * a_w[1]);
+            if (ah > a_max) a_max = ah;
 
             if (!moving) {
-                if (el > pdMS_TO_TICKS(FWD_SETTLE_MS) && ah > FWD_ONSET_G) {
+                if (el <= pdMS_TO_TICKS(FWD_SETTLE_MS)) continue;
+                float leak = 1.0f - dt / FWD_LEAK_S;
+                v[0] = v[0] * leak + a_w[0] * dt;
+                v[1] = v[1] * leak + a_w[1] * dt;
+                float sp = sqrtf(v[0] * v[0] + v[1] * v[1]);
+                if (sp > v_wait_max) v_wait_max = sp;
+                if (sp > FWD_ONSET_SPEED) {
                     moving = true;
-                    onset_t_us = last_t_us = f.t_us;
-                    v[0] = v[1] = 0;
+                    onset_t_us = f.t_us;
+                    v_best = sp; v_dir[0] = v[0]; v_dir[1] = v[1]; x_dir[0] = xw[0]; x_dir[1] = xw[1];
                 }
                 continue;
             }
-            float dt = (f.t_us - last_t_us) * 1e-6f;
-            last_t_us = f.t_us;
-            v[0] += a_w[0] * dt; v[1] += a_w[1] * dt;   // g·s
+            v[0] += a_w[0] * dt; v[1] += a_w[1] * dt;   // g·s, no leak during the slide
             float sp = sqrtf(v[0] * v[0] + v[1] * v[1]);
             if (sp > v_best) {
                 v_best = sp;
@@ -253,14 +266,18 @@ static bool calibrate_forward(void)
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 done:
-    if (!moving) { DT_LOGW(TAG, "no slide seen in %d s", FWD_WAIT_MS / 1000); return false; }
+    if (!moving) {
+        DT_LOGW(TAG, "no slide seen in %d s (peak |a| %.2f g, peak speed %.3f g·s)",
+                FWD_WAIT_MS / 1000, a_max, v_wait_max);
+        return false;
+    }
     if (v_best < FWD_MIN_SPEED) { DT_LOGW(TAG, "slide too slow (%.3f g·s)", v_best); return false; }
 
     cal.yaw_fwd = atan2f(v_dir[1], v_dir[0]) - atan2f(x_dir[1], x_dir[0]);
     cal.fwd_valid = 1;
     cal_compose();
     madgwick_init(&ahrs, 0.1f);
-    DT_LOGI(TAG, "forward ok: toe is %.0f° from sensor x, peak %.2f g·s", cal.yaw_fwd / DEG2RAD, v_best);
+    DT_LOGI(TAG, "forward ok: toe is %.0f° from sensor x, peak %.3f g·s", cal.yaw_fwd / DEG2RAD, v_best);
     return true;
 }
 
