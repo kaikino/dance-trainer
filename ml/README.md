@@ -22,7 +22,11 @@ match `rules.c`).
 ## Invariants with the firmware
 
 - Window: 40 samples before the strike, 20 after, 100 Hz. Channels in order:
-  ax ay az gx gy gz (sensor), ax ay az (world, gravity removed).
+  ax ay az gx gy gz (calibrated sensor frame: +z up, +x toe), ax ay az (foot
+  frame, gravity removed). The right foot is mirrored on y in both groups so
+  +y = outward on both feet (`MIRRORED_FOOT` in `dt/windows.py`, `stepdet.c`).
+  Because calibration fixes both down and forward, none of the nine channels
+  depends on how the board sits on the strap.
 - int8 quantization: `round(v / scale * 127)` per channel, scales in
   `dt/windows.py` and duplicated in `stepdet.c`.
 - The network is run on the node by `cnn.c`, a hand-written float implementation

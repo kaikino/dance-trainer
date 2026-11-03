@@ -111,11 +111,13 @@ Missed steps are sent with `step_class = 0`, `t_strike_node_us` = expected time.
 Sample: `qw, qx, qy, qz i16` (×1/16384), `ax, ay, az i16` (mg).
 
 In idle and dance mode: samples 20 ms apart (50 Hz); `ax..az` are in the
-**foot frame**: leveled, yaw removed so +x = toe direction, gravity removed, and
-y mirrored on the left node so +y = outward on both feet.
+**foot frame**: leveled, heading removed so +x = toe direction, gravity removed,
+and y mirrored on the **right** node so +y = outward on both feet.
 
-In capture mode the node streams 100 Hz instead: `ax..az` are in the **aligned
-sensor frame** (after the calibration rotation, gravity included), and a second
+In capture mode the node streams 100 Hz instead: `ax..az` are in the
+**calibrated sensor frame** (after the calibration rotation: +z = up at the
+still pose, +x = toe from the slide-forward gesture; gravity included; not
+mirrored), and a second
 notify per batch carries `gx, gy, gz` (dps × 10) in the `ax..az` slots with
 `qw = 0x7FFF` marking it as a gyro packet. The app stores both; `ml/` rebuilds
 the foot frame from them with the same math as the firmware.

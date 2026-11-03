@@ -86,8 +86,8 @@ def synth_session(dancer: str, preset: dict, idx: int, rng, out_dir: Path) -> No
             if i - n_pre < 0 or i + n_post > n:
                 continue
             dx, dy, pk = PROFILE[StepClass(cls)]
-            if foot == "L":
-                dy = -dy  # sensor y is mirrored for the left foot
+            if foot == "R":
+                dy = -dy  # +y is the dancer's left; outward on the right foot is -y
             sig[i - n_pre : i + n_post] += step_pulse(n_pre, n_post, dx * amp, dy * amp, pk * amp, rng) - np.array([0, 0, 1, 0, 0, 0], dtype=np.float32)
             events.append({
                 "t_strike_node_us": int(t_node_us[i]), "foot": foot,

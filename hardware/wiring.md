@@ -27,9 +27,12 @@ LiPo (−) ───────────────────────
   by P0.14 low. Nothing to wire.
 - **IMU.** Internal: LSM6DS3TR-C on P0.07 / P0.27 (`Wire1`), INT1 on P0.11,
   powered from P1.08. Nothing to wire.
-- **Orientation.** Mount the board with its long axis along the foot and the
-  USB-C port toward the toe, component side up. Calibration corrects small
-  tilts, not a 90° rotation. Left and right nodes are mirrored in firmware,
+- **Orientation.** Any orientation works as long as it does not change during
+  the session: calibration measures which way is down (2 s still pose) and
+  which way is forward (one slide of the foot), and rotates everything into a
+  foot frame. Mounting with the USB-C port toward the toe is still the
+  convention, because a node that was calibrated without the slide gesture
+  falls back to assuming that. Left and right nodes are mirrored in firmware,
   so both boards mount the same way on their respective ankles.
 - **Antenna.** The ceramic antenna is at the end opposite the USB-C port. Keep
   that end away from the battery and out of the strap's metal buckle if any.

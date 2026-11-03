@@ -28,12 +28,29 @@ def build() -> tf.keras.Model:
     return m
 
 
+def _small_rotation(max_yaw_deg: float = 10.0, max_tilt_deg: float = 5.0) -> np.ndarray:
+    """Random rotation matrix: up to ±max_yaw about z, ±max_tilt about x and y.
+    Models leftover calibration error (imperfect still pose or slide)."""
+    yaw, rx, ry = np.radians(np.random.uniform(-1, 1, 3) * [max_yaw_deg, max_tilt_deg, max_tilt_deg])
+    cz, sz, cx, sx, cy, sy = np.cos(yaw), np.sin(yaw), np.cos(rx), np.sin(rx), np.cos(ry), np.sin(ry)
+    rz = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
+    rxm = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
+    rym = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+    return (rz @ rym @ rxm).astype(np.float32)
+
+
 def augment(x: np.ndarray) -> np.ndarray:
-    """Random ±3-sample time shift and ±10% gain. Input/output int8-range floats."""
+    """Random ±3-sample time shift, ±10% gain, and a small random rotation applied
+    to each 3-vector group (sensor accel, gyro, foot accel) so the model does not
+    learn the exact strap angle. Input/output int8-range floats."""
     out = np.empty_like(x)
     for i in range(len(x)):
         s = np.random.randint(-3, 4)
-        out[i] = np.roll(x[i], s, axis=0) * np.random.uniform(0.9, 1.1)
+        w = np.roll(x[i], s, axis=0) * np.random.uniform(0.9, 1.1)
+        r = _small_rotation()
+        for c0 in (0, 3, 6):
+            w[:, c0:c0 + 3] = w[:, c0:c0 + 3] @ r.T
+        out[i] = w
     return np.clip(out, -128, 127)
 
 

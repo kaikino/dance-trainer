@@ -12,6 +12,10 @@ CHANNELS = ["ax", "ay", "az", "gx", "gy", "gz", "ax_f", "ay_f", "az_f"]
 # export.py writes these into firmware/components/model/model_scales.h.
 SCALES = np.array([16, 16, 16, 2000, 2000, 2000, 8, 8, 8], dtype=np.float32)
 
+# The node's calibrated sensor frame is +x toe, +z up, so +y is the dancer's left.
+# The RIGHT foot is mirrored so +y = outward on both feet. Same as fusion.c/stepdet.c.
+MIRRORED_FOOT = "R"
+
 
 def quantize(x: np.ndarray) -> np.ndarray:
     """x: (..., 9) float → int8."""
@@ -28,8 +32,8 @@ def _rotate(w, x, y, z, v: np.ndarray) -> np.ndarray:
 
 
 def foot_accel(df: pd.DataFrame, foot: str) -> np.ndarray:
-    """Sensor accel (mg, aligned sensor frame) → foot frame in g: leveled, yaw
-    removed so +x = toe direction, gravity removed, y mirrored for the left foot
+    """Sensor accel (mg, calibrated sensor frame) → foot frame in g: leveled, heading
+    removed so +x = toe direction, gravity removed, y mirrored for the right foot
     so +y = outward on both feet. Same math as fusion.c fusion_task()."""
     w, x, y, z = (df[c].to_numpy(dtype=np.float32) for c in ("qw", "qx", "qy", "qz"))
     a = df[["ax", "ay", "az"]].to_numpy(dtype=np.float32) / 1000.0
@@ -42,9 +46,19 @@ def foot_accel(df: pd.DataFrame, foot: str) -> np.ndarray:
     out[:, 0] = c * a_w[:, 0] + s * a_w[:, 1]
     out[:, 1] = -s * a_w[:, 0] + c * a_w[:, 1]
     out[:, 2] = a_w[:, 2]
-    if foot == "L":
+    if foot == MIRRORED_FOOT:
         out[:, 1] = -out[:, 1]
     return out
+
+
+def mirror_sensor(sensor: np.ndarray, gyro: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Reflect the y axis: accelerations flip y, rotation rates (axial vectors) flip
+    the other two. Same as stepdet.c cut_window() on the right node."""
+    sensor = sensor.copy(); gyro = gyro.copy()
+    sensor[:, 1] = -sensor[:, 1]
+    gyro[:, 0] = -gyro[:, 0]
+    gyro[:, 2] = -gyro[:, 2]
+    return sensor, gyro
 
 
 def cut(df: pd.DataFrame, t_strike_us: int, foot: str) -> np.ndarray | None:
@@ -56,5 +70,7 @@ def cut(df: pd.DataFrame, t_strike_us: int, foot: str) -> np.ndarray | None:
     sl = df.iloc[i - WIN_PRE : i + WIN_POST]
     sensor = sl[["ax", "ay", "az"]].to_numpy(dtype=np.float32) / 1000.0
     gyro = sl[["gx", "gy", "gz"]].to_numpy(dtype=np.float32) / 10.0
+    if foot == MIRRORED_FOOT:
+        sensor, gyro = mirror_sensor(sensor, gyro)
     foot_fr = foot_accel(sl, foot)
     return quantize(np.concatenate([sensor, gyro, foot_fr], axis=1))

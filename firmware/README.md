@@ -26,7 +26,7 @@ The compile-time role is only a default. Over the serial console, `role L` or
 | Command | Does |
 | --- | --- |
 | `status` | role, mode, battery, BLE state, calibration, node clock |
-| `cal` | 2 s still-pose calibration (same as the app's Calibrate) |
+| `cal` | calibration (same as the app's Calibrate): hold still 2 s, short buzz, then slide the foot forward once; double buzz = done, long buzz = no slide seen |
 | `buzz [1\|2\|3]` | short / double / long motor pattern |
 | `selftest` | runs the CNN on 20 embedded windows, prints `idx,class,conf,us` |
 | `role L\|R` | store role and reboot |

@@ -28,6 +28,11 @@ static int8_t q8(float v, float scale)
 
 static void cut_window(uint32_t strike_idx, step_window_t *w)
 {
+    // The right node mirrors y so +y = outward on both feet. The foot-frame
+    // channels arrive mirrored from fusion; the sensor-frame ones are mirrored
+    // here: accelerations flip y, rotation rates (axial vectors) flip x and z.
+    // ml/dt/windows.py mirror_sensor() does the same.
+    const float m = dt_role() == DT_ROLE_RIGHT ? -1.0f : 1.0f;
     fused_sample_t f;
     for (int i = 0; i < WIN_LEN; i++) {
         uint32_t idx = strike_idx - WIN_PRE_SAMPLES + i;
@@ -36,11 +41,11 @@ static void cut_window(uint32_t strike_idx, step_window_t *w)
             continue;
         }
         w->x[i][0] = q8(f.raw.ax, scales[0]);
-        w->x[i][1] = q8(f.raw.ay, scales[1]);
+        w->x[i][1] = q8(m * f.raw.ay, scales[1]);
         w->x[i][2] = q8(f.raw.az, scales[2]);
-        w->x[i][3] = q8(f.raw.gx, scales[3]);
+        w->x[i][3] = q8(m * f.raw.gx, scales[3]);
         w->x[i][4] = q8(f.raw.gy, scales[4]);
-        w->x[i][5] = q8(f.raw.gz, scales[5]);
+        w->x[i][5] = q8(m * f.raw.gz, scales[5]);
         w->x[i][6] = q8(f.ax_f, scales[6]);
         w->x[i][7] = q8(f.ay_f, scales[7]);
         w->x[i][8] = q8(f.az_f, scales[8]);

@@ -224,7 +224,7 @@ void ble_init(dt_role_t role)
     chr_control.setProperties(CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP);
     chr_control.setPermission(SECMODE_OPEN, SECMODE_OPEN);
     chr_control.setMaxLen(8);
-    chr_control.setWriteCallback(on_control);            // deferred: calibrate blocks 2 s
+    chr_control.setWriteCallback(on_control);            // deferred: calibrate blocks up to ~8 s
     chr_control.begin();
 
     chr_event.setProperties(CHR_PROPS_NOTIFY);
