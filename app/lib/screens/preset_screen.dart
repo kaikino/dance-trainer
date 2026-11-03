@@ -43,7 +43,7 @@ class _PresetScreenState extends State<PresetScreen> {
 
   Future<void> _load() async {
     final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
-    final paths = manifest.listAssets().where((p) => p.startsWith('presets/') && p.endsWith('.json')).toList()
+    final paths = manifest.listAssets().where((p) => p.startsWith('assets/presets/') && p.endsWith('.json')).toList()
       ..sort();
     final presets = [for (final p in paths) await Preset.loadAsset(p)];
     setState(() {

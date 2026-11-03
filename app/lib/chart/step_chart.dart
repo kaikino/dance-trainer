@@ -56,15 +56,17 @@ class _StepChartPainter extends CustomPainter {
   final double ahead, behind;
   final ThemeData theme;
 
-  static const _arrow = {
-    StepClass.forward: '↑',
-    StepClass.back: '↓',
-    StepClass.sideOut: '↔',
-    StepClass.cross: '✕',
-    StepClass.kick: '⇑',
-    StepClass.inPlace: '•',
+  // Plain words: arrow glyphs like ↔ render as colour emoji on Android.
+  static const _label = {
+    StepClass.forward: 'fwd',
+    StepClass.back: 'back',
+    StepClass.sideOut: 'side',
+    StepClass.cross: 'cross',
+    StepClass.kick: 'kick',
+    StepClass.inPlace: 'tap',
     StepClass.none: '',
   };
+  static const _headerH = 40.0;
 
   Color _color(Verdict? v) => switch (v) {
         null || Verdict.unjudged => theme.colorScheme.primary,
@@ -75,7 +77,10 @@ class _StepChartPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final laneW = size.width / 2;
-    final pxPerBeat = size.height / (ahead + behind);
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    final bodyH = size.height - _headerH;
+    final pxPerBeat = bodyH / (ahead + behind);
     final nowY = size.height - behind * pxPerBeat;
 
     // Lanes and beat grid.
@@ -86,6 +91,7 @@ class _StepChartPainter extends CustomPainter {
     final firstGridBeat = (nowBeat - behind).ceil();
     for (var b = firstGridBeat; b <= nowBeat + ahead; b++) {
       final y = nowY - (b - nowBeat) * pxPerBeat;
+      if (y < _headerH) continue;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
     }
 
@@ -99,35 +105,39 @@ class _StepChartPainter extends CustomPainter {
     );
 
     // Footprints.
-    final r = pxPerBeat * 0.3;
+    final r = (pxPerBeat * 0.28).clamp(14.0, laneW * 0.16);
     for (var i = 0; i < preset.steps.length; i++) {
       final s = preset.steps[i];
       final dBeat = s.beat - nowBeat;
       if (dBeat < -behind || dBeat > ahead) continue;
       final cx = (s.foot == Role.left ? 0.5 : 1.5) * laneW;
       final cy = nowY - dBeat * pxPerBeat;
+      if (cy < _headerH - r) continue;
       final v = verdicts[i];
       final fill = Paint()..color = _color(v).withValues(alpha: dBeat < 0 && v == null ? 0.3 : 0.9);
       canvas.drawCircle(Offset(cx, cy), r, fill);
 
       final tp = TextPainter(
         text: TextSpan(
-          text: _arrow[s.stepClass],
-          style: TextStyle(color: Colors.white, fontSize: r * 1.2, fontWeight: FontWeight.bold),
+          text: _label[s.stepClass],
+          style: TextStyle(color: Colors.white, fontSize: r * 0.62, fontWeight: FontWeight.bold),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
       tp.paint(canvas, Offset(cx - tp.width / 2, cy - tp.height / 2));
     }
 
-    // Lane labels.
-    for (final (label, x) in [('L', laneW * 0.5), ('R', laneW * 1.5)]) {
+    // Header strip with lane labels, drawn last so footprints scroll under it.
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, _headerH), Paint()..color = theme.colorScheme.surface);
+    canvas.drawLine(const Offset(0, _headerH), Offset(size.width, _headerH), grid);
+    for (final (label, x) in [('LEFT', laneW * 0.5), ('RIGHT', laneW * 1.5)]) {
       final tp = TextPainter(
-        text: TextSpan(text: label, style: theme.textTheme.headlineSmall),
+        text: TextSpan(text: label, style: theme.textTheme.titleMedium),
         textDirection: TextDirection.ltr,
       )..layout();
-      tp.paint(canvas, Offset(x - tp.width / 2, 8));
+      tp.paint(canvas, Offset(x - tp.width / 2, (_headerH - tp.height) / 2));
     }
+    canvas.restore();
   }
 
   @override

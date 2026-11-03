@@ -27,7 +27,7 @@ class SummaryScreen extends StatelessWidget {
     // Errors by (foot, expected class).
     final errors = <String, int>{};
     for (final r in judged.where((r) => r.ev.verdict != Verdict.correct)) {
-      final key = '${r.foot == Role.left ? 'L' : 'R'} ${r.ev.expectedClass.name}';
+      final key = '${r.foot == Role.left ? 'Left' : 'Right'} foot, ${_stepName(r.ev.expectedClass)}';
       errors[key] = (errors[key] ?? 0) + 1;
     }
     final worst = errors.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
@@ -60,7 +60,7 @@ class SummaryScreen extends StatelessWidget {
             if (worst.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
-                child: Text('What to drill: ${worst.first.key.replaceFirst('L ', 'left foot ').replaceFirst('R ', 'right foot ')}.',
+                child: Text('What to drill: ${worst.first.key.toLowerCase()}.',
                     style: const TextStyle(fontWeight: FontWeight.bold)),
               ),
           ],
@@ -98,4 +98,14 @@ class SummaryScreen extends StatelessWidget {
           ),
         ),
       );
+
+  static String _stepName(StepClass c) => switch (c) {
+        StepClass.forward => 'forward step',
+        StepClass.back => 'back step',
+        StepClass.sideOut => 'side step',
+        StepClass.cross => 'cross step',
+        StepClass.kick => 'kick',
+        StepClass.inPlace => 'tap in place',
+        StepClass.none => 'no step',
+      };
 }
