@@ -41,11 +41,20 @@ const stepClassNames = {
 const schedFlagHeader = 0x01;
 const schedFlagLast = 0x02;
 
+const calStill = 0x01; // still pose done: tilt and gyro bias known
+const calForward = 0x02; // slide gesture done: toe direction known
+
 class Status {
   final int protocolVersion, fwVersion, batteryPct;
   final Role role;
   final Mode mode;
-  Status(this.protocolVersion, this.role, this.fwVersion, this.batteryPct, this.mode);
+
+  /// calStill | calForward bits, or null from firmware that predates the field.
+  final int? calFlags;
+  Status(this.protocolVersion, this.role, this.fwVersion, this.batteryPct, this.mode, [this.calFlags]);
+
+  bool get calibrated => (calFlags ?? 0) & calStill != 0;
+  bool get knowsForward => (calFlags ?? 0) & calForward != 0;
 
   static Status parse(List<int> b) {
     final d = ByteData.sublistView(Uint8List.fromList(b));
@@ -55,12 +64,13 @@ class Status {
       d.getUint16(2, Endian.little),
       d.getUint8(4),
       Mode.values[d.getUint8(5)],
+      b.length >= 7 ? d.getUint8(6) : null,
     );
   }
 
   @override
-  String toString() =>
-      'fw ${fwVersion >> 8}.${fwVersion & 0xff}  bat $batteryPct%  ${mode.name}';
+  String toString() => 'fw ${fwVersion >> 8}.${fwVersion & 0xff}  bat $batteryPct%  ${mode.name}'
+      '${calFlags == null ? '' : knowsForward ? '  calibrated' : calibrated ? '  tilt only' : '  not calibrated'}';
 }
 
 class TimeSyncReply {

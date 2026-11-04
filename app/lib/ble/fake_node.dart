@@ -43,7 +43,7 @@ class FakeNodeClient extends NodeClient {
   }
 
   void _publishStatus() {
-    status = Status(protocolVersion, role, 0x0002, role == Role.left ? 84 : 61, _mode);
+    status = Status(protocolVersion, role, 0x0002, role == Role.left ? 84 : 61, _mode, calibrated ? calStill | calForward : 0);
     notifyListeners();
   }
 
@@ -118,6 +118,7 @@ class FakeNodeClient extends NodeClient {
   Future<void> calibrate() async {
     await Future<void>.delayed(const Duration(seconds: 3));
     calibrated = true;
+    _publishStatus();
     debugPrint('fake $roleLabel: calibrated');
   }
 
@@ -155,7 +156,13 @@ class FakeNodeClient extends NodeClient {
       final gyr = <StreamSample>[];
       for (var i = 0; i < StreamBatch.samplesPerBatch; i++) {
         int n() => (_rng.nextDouble() * 40 - 20).round();
-        acc.add(StreamSample(1, 0, 0, 0, n(), n(), capture ? 1000 + n() : n(), false));
+        // A foot that sways a little and slides forward every 3 s, so the
+        // live view has something to show.
+        final t = (t0 + i * stepUs) / 1e6;
+        final (qw, qx, qy, qz) = _quat(0.25 * sin(t * 0.7), 0.15 * sin(t * 1.3), 0.08 * sin(t * 1.9));
+        final phase = t % 3.0;
+        final fwd = phase < 0.4 ? (sin(phase / 0.4 * 2 * pi) * 300).round() : 0;
+        acc.add(StreamSample(qw, qx, qy, qz, capture ? n() : fwd + n(), n(), capture ? 1000 + n() : n(), false));
         if (capture) gyr.add(StreamSample(0x7fff / 16384.0, 0, 0, 0, n(), n(), n(), true));
       }
       emitBatch(StreamBatch(t0, acc));
@@ -166,5 +173,18 @@ class FakeNodeClient extends NodeClient {
         emitBatch(StreamBatch(t0 + 5 * stepUs, gyr));
       }
     });
+  }
+
+  /// Quaternion for yaw (about z), then pitch (about y), then roll (about x).
+  static (double, double, double, double) _quat(double yaw, double pitch, double roll) {
+    final cy = cos(yaw / 2), sy = sin(yaw / 2);
+    final cp = cos(pitch / 2), sp = sin(pitch / 2);
+    final cr = cos(roll / 2), sr = sin(roll / 2);
+    return (
+      cr * cp * cy + sr * sp * sy,
+      sr * cp * cy - cr * sp * sy,
+      cr * sp * cy + sr * cp * sy,
+      cr * cp * sy - sr * sp * cy,
+    );
   }
 }

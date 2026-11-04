@@ -64,7 +64,11 @@ typedef struct __attribute__((packed)) {
     uint16_t fw_version;   // major << 8 | minor
     uint8_t  battery_pct;
     uint8_t  mode;
-} dt_status_t;             // 6 bytes
+    uint8_t  cal_flags;    // DT_CAL_* bits
+} dt_status_t;             // 7 bytes (protocol 1 nodes before this field sent 6)
+
+#define DT_CAL_STILL   0x01   // still pose done: tilt and gyro bias known
+#define DT_CAL_FORWARD 0x02   // slide gesture done: toe direction known
 
 typedef struct __attribute__((packed)) {
     uint32_t t_app_ms;
@@ -111,6 +115,6 @@ typedef struct __attribute__((packed)) {
 #else
 #define DT_STATIC_ASSERT(c, m) _Static_assert(c, m)
 #endif
-DT_STATIC_ASSERT(sizeof(dt_status_t) == 6, "status size");
+DT_STATIC_ASSERT(sizeof(dt_status_t) == 7, "status size");
 DT_STATIC_ASSERT(sizeof(dt_step_event_t) == 12, "step event size");
 DT_STATIC_ASSERT(sizeof(dt_stream_batch_t) == 74, "stream batch size");

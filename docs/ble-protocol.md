@@ -36,7 +36,7 @@ role:       0 left, 1 right
 haptic:     1 short (timing error), 2 double (wrong step), 3 long (test)
 ```
 
-## Status (0002) — 6 bytes
+## Status (0002) — 7 bytes
 
 | field | type | notes |
 | --- | --- | --- |
@@ -45,8 +45,10 @@ haptic:     1 short (timing error), 2 double (wrong step), 3 long (test)
 | fw_version | u16 | major<<8 \| minor |
 | battery_pct | u8 | 0–100 |
 | mode | u8 | |
+| cal_flags | u8 | bit 0 = still pose done (tilt known), bit 1 = slide gesture done (toe direction known) |
 
-Notified on change.
+Notified every 2 s. Firmware before `cal_flags` sent 6 bytes; the app treats a
+missing field as "unknown".
 
 ## Time sync (0003)
 

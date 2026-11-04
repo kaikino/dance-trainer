@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
+import 'live_view_screen.dart';
 import 'preset_screen.dart';
 
 /// Find both nodes, calibrate them, sync clocks. Entry screen.
@@ -65,9 +66,12 @@ class _ConnectScreenState extends State<ConnectScreen> {
       await Future<void>.delayed(const Duration(seconds: 9));
     } catch (e) {
       _snack('Calibrate failed: $e');
+      return;
     } finally {
       if (mounted) setState(() => _calibrating = null);
     }
+    // Let the dancer check the result straight away.
+    if (mounted) _openLiveView();
   }
 
   Future<void> _sync(NodeClient n) async {
@@ -78,6 +82,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
       _snack('Time sync failed: $e');
     }
   }
+
+  void _openLiveView() =>
+      Navigator.push(context, MaterialPageRoute(builder: (_) => LiveViewScreen(manager: m)));
 
   void _snack(String s) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
 
@@ -158,6 +165,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   ),
                   OutlinedButton(onPressed: () => _sync(n), child: const Text('Sync clock')),
                   OutlinedButton(onPressed: () => n.buzzTest(Haptic.double), child: const Text('Buzz')),
+                  OutlinedButton.icon(
+                    onPressed: _openLiveView,
+                    icon: const Icon(Icons.threed_rotation, size: 18),
+                    label: const Text('Live view'),
+                  ),
                 ],
               ),
             ],

@@ -44,6 +44,7 @@ static void fill_status(dt_status_t *s)
     s->fw_version = (DT_FW_MAJOR << 8) | DT_FW_MINOR;
     s->battery_pct = battery_pct();
     s->mode = judge_mode();
+    s->cal_flags = (fusion_is_calibrated() ? DT_CAL_STILL : 0) | (fusion_has_forward() ? DT_CAL_FORWARD : 0);
 }
 
 static void push_status(void)
