@@ -69,7 +69,7 @@ strike candidate, so the node's own buzz cannot be mistaken for a step.
 
 | Signal | XIAO pin | nRF52840 |
 | --- | --- | --- |
-| Vibration motor SIG | D0 | P0.02 |
+| Vibration motor SIG | D9 | P1.14 |
 | IMU SDA / SCL (internal) | — | P0.07 / P0.27 |
 | IMU INT1 (internal) | — | P0.11 |
 | IMU power (internal) | — | P1.08 |

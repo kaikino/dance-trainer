@@ -6,7 +6,7 @@ Only three external connections per node: the motor, the battery, the switch.
                  ┌──────────── XIAO nRF52840 Sense Plus ────────────┐
 Grove motor VCC ─┤ 3V3                                              │
 Grove motor GND ─┤ GND                                              │
-Grove motor SIG ─┤ D0 (P0.02)                                       │
+Grove motor SIG ─┤ D9 (P1.14)                                       │
                  │                                    back pads:    │
 LiPo (+) ── switch ─────────────────────────────────── BAT+        │
 LiPo (−) ───────────────────────────────────────────── BAT−        │
@@ -15,7 +15,8 @@ LiPo (−) ───────────────────────
 
 - **Motor.** The Grove module has the drive transistor and flyback diode on it,
   so SIG is a plain logic input. Cut one end off a Grove cable and solder the
-  three wires (the fourth, NC, is unused) to 3V3, GND and D0. The coin motor
+  three wires to 3V3, GND and D9 (yellow, SIG). The fourth, white (NC), is unused;
+  on our nodes it sits on D10, which the firmware leaves alone. The coin motor
   draws about 60–80 mA at 3.3 V; the board's regulator covers that.
 - **Battery.** BAT+ and BAT− are solder pads on the underside. The onboard
   BQ25100 charges the cell from USB-C; the firmware selects 100 mA, suitable for

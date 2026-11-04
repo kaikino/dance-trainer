@@ -4,7 +4,7 @@
 // from the board package's variant.h; physical names in hardware/wiring.md.
 #include "variant.h"
 
-#define BOARD_MOTOR_PIN      D0                      // Grove Vibration Motor SIG (P0.02)
+#define BOARD_MOTOR_PIN      D9                      // Grove Vibration Motor SIG (P1.14)
 #define BOARD_IMU_WIRE       Wire1                   // internal bus: P0.07 SDA, P0.27 SCL
 #define BOARD_IMU_ADDR       0x6A
 #define BOARD_IMU_PWR        PIN_LSM6DS3TR_C_POWER   // P1.08, drive HIGH

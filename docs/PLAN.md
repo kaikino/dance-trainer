@@ -62,7 +62,7 @@ Lead: Zoe. Reference: `hardware/wiring.md`. Build one node completely
 first, test it, then do the other two the same way.
 
 1. **Motor.** Cut one end off a Grove cable. Solder red → 3V3, black → GND,
-   yellow (SIG) → D0. White is unused; tape it. Console `buzz 1`, `buzz 2`,
+   yellow (SIG) → D9. White (NC) is unused; it can sit on D10 or be taped. Console `buzz 1`, `buzz 2`,
    `buzz 3` must vibrate. Done when all three patterns feel different.
 2. **Battery.** Solder the LiPo − lead to the BAT− pad on the underside.
    Solder the switch between LiPo + and the BAT+ pad. Heat-shrink both
