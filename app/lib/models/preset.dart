@@ -20,12 +20,13 @@ class Preset {
   final int countInBeats;
   final List<PresetStep> steps; // expanded over `repeats`
   final String? music; // file name under assets/music/, or null for a metronome
+  final double tempo; // 1.0 = as written; the music plays at this speed
 
-  const Preset(this.id, this.name, this.bpm, this.countInBeats, this.steps, {this.music});
+  const Preset(this.id, this.name, this.bpm, this.countInBeats, this.steps, {this.music, this.tempo = 1.0});
 
   /// Same routine at a scaled tempo (Practice mode slow-down).
   Preset withTempo(double factor) =>
-      Preset(id, name, bpm * factor, countInBeats, steps, music: music);
+      Preset(id, name, bpm * factor, countInBeats, steps, music: music, tempo: tempo * factor);
 
   static Future<Preset> loadAsset(String path) async =>
       Preset.fromJson(jsonDecode(await rootBundle.loadString(path)) as Map<String, dynamic>);

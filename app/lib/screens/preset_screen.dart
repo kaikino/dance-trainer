@@ -4,7 +4,9 @@ import 'package:flutter/services.dart';
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
 import '../models/preset.dart';
+import '../store/settings.dart';
 import 'dance_screen.dart';
+import 'sound_sync_dialog.dart';
 
 /// How a session behaves. Capture and Dance are the node's modes; Practice and
 /// Performance are both node mode `dance`, differing only in what the app does
@@ -86,6 +88,21 @@ class _PresetScreenState extends State<PresetScreen> {
                   divisions: 12,
                   label: '${(_tempo * 100).round()}%',
                   onChanged: (v) => setState(() => _tempo = v),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.graphic_eq),
+                  title: const Text('Sound sync'),
+                  subtitle: Text(AppSettings.audioDelayMeasured
+                      ? 'Sound delay ${AppSettings.audioDelayMs} ms'
+                      : 'Not measured on this device yet (using ${AppSettings.audioDelayMs} ms)'),
+                  trailing: OutlinedButton(
+                    onPressed: () async {
+                      await SoundSyncDialog.show(context);
+                      setState(() {});
+                    },
+                    child: const Text('Test'),
+                  ),
                 ),
                 const Divider(),
                 RadioGroup<SessionKind>(

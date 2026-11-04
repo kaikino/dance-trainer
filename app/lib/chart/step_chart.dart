@@ -56,9 +56,25 @@ class _StepChartPainter extends CustomPainter {
   final double ahead, behind;
   final ThemeData theme;
 
-  // Plain words: arrow glyphs like ↔ render as colour emoji on Android.
-  static const _label = {
-    StepClass.forward: 'fwd',
+  /// Arrow for a step, as the dancer sees the chart (left lane = left foot).
+  /// Side steps point outward, crosses curve inward over the other foot.
+  /// Material icon glyphs, not Unicode arrows, which Android draws as emoji.
+  static IconData? _icon(StepClass c, Role foot) {
+    final left = foot == Role.left;
+    return switch (c) {
+      StepClass.forward => Icons.arrow_upward,
+      StepClass.back => Icons.arrow_downward,
+      StepClass.sideOut => left ? Icons.arrow_back : Icons.arrow_forward,
+      StepClass.cross => left ? Icons.redo : Icons.undo,
+      StepClass.kick => Icons.keyboard_double_arrow_up,
+      StepClass.inPlace => Icons.adjust,
+      StepClass.none => null,
+    };
+  }
+
+  /// Small caption under each footprint, for dancers learning the arrows.
+  static const _caption = {
+    StepClass.forward: 'forward',
     StepClass.back: 'back',
     StepClass.sideOut: 'side',
     StepClass.cross: 'cross',
@@ -117,14 +133,30 @@ class _StepChartPainter extends CustomPainter {
       final fill = Paint()..color = _color(v).withValues(alpha: dBeat < 0 && v == null ? 0.3 : 0.9);
       canvas.drawCircle(Offset(cx, cy), r, fill);
 
-      final tp = TextPainter(
+      final icon = _icon(s.stepClass, s.foot);
+      if (icon != null) {
+        final ip = TextPainter(
+          text: TextSpan(
+            text: String.fromCharCode(icon.codePoint),
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: r * 1.3,
+              fontFamily: icon.fontFamily,
+              package: icon.fontPackage,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        ip.paint(canvas, Offset(cx - ip.width / 2, cy - ip.height / 2));
+      }
+      final cp = TextPainter(
         text: TextSpan(
-          text: _label[s.stepClass],
-          style: TextStyle(color: Colors.white, fontSize: r * 0.62, fontWeight: FontWeight.bold),
+          text: _caption[s.stepClass],
+          style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: (r * 0.45).clamp(11.0, 16.0)),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
-      tp.paint(canvas, Offset(cx - tp.width / 2, cy - tp.height / 2));
+      cp.paint(canvas, Offset(cx - cp.width / 2, cy + r + 2));
     }
 
     // Header strip with lane labels, drawn last so footprints scroll under it.
