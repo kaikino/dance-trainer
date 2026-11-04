@@ -30,9 +30,9 @@ LiPo (−) ───────────────────────
   powered from P1.08. Nothing to wire.
 - **Orientation.** Any orientation works as long as it does not change during
   the session: calibration measures which way is down (2 s still pose) and
-  which way is forward (one slide of the foot), and rotates everything into a
+  which way is forward (three slides of the foot), and rotates everything into a
   foot frame. Mounting with the USB-C port toward the toe is still the
-  convention, because a node that was calibrated without the slide gesture
+  convention, because a node whose slides failed reports "tilt only" and
   falls back to assuming that. Left and right nodes are mirrored in firmware,
   so both boards mount the same way on their respective ankles.
 - **Antenna.** The ceramic antenna is at the end opposite the USB-C port. Keep

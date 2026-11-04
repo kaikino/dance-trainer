@@ -225,8 +225,9 @@ class _FootPanel extends StatelessWidget {
     final theme = Theme.of(context);
     final (badge, color) = switch (st) {
       null || Status(calFlags: null) => ('Calibration unknown (old firmware)', Colors.grey),
+      Status(boardMoved: true) => ('Board moved on the strap? Calibrate again', Colors.orange),
       Status(knowsForward: true) => ('Calibrated', Colors.green),
-      Status(calibrated: true) => ('Tilt only: slide the foot forward when calibrating', Colors.orange),
+      Status(calibrated: true) => ('Tilt only: toe direction unknown, calibrate again', Colors.orange),
       _ => ('Not calibrated: directions follow the board, not the foot', Colors.red),
     };
     final turn = foot.turnOut.abs() < 3 * pi / 180

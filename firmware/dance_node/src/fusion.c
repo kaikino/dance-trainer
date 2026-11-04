@@ -26,6 +26,30 @@ extern QueueHandle_t haptic_q;   // cue the dancer between calibration phases
 #define FWD_INTEGRATE_MS   800   // integrate velocity this long after onset
 #define FWD_MIN_SPEED     0.012f // g·s (≈0.12 m/s): slower than this is not a slide
 
+// Stillness: gyro quiet and acceleration not wandering from where the run began.
+#define STILL_GYRO_DPS     8.0f  // includes the uncorrected gyro bias in phase 1
+#define STILL_ACC_G        0.05f
+#define CAL_STILL_MS       1500  // phase 1 starts by itself after this long still
+#define CAL_STILL_WAIT_MS 12000
+
+// Phase 2: several slides, which must agree.
+#define CAL_SLIDES         3
+#define CAL_MAX_SPREAD_DEG 15.0f // any slide this far from the mean: redo
+#define RETURN_END_MS       200  // the slide has ended once still this long
+#define RETURN_WAIT_MS     4000  // how long to wait for the foot to start coming back
+#define RETURN_STILL_MS     700
+#define RETURN_STILL_WAIT_MS 6000
+#define RETURN_MOVE_DPS    25.0f
+#define RETURN_MOVE_G       0.1f
+
+// Moved-strap check: outside calibration, a second of stillness should show
+// gravity near +z of the calibrated frame. Hysteresis so it does not flicker.
+#define MOVED_STILL_MS     1000
+#define MOVED_GYRO_DPS      5.0f
+#define MOVED_ACC_G         0.03f
+#define MOVED_SET_DEG      20.0f
+#define MOVED_CLEAR_DEG    12.0f
+
 typedef struct {
     float gyro_bias[3];      // dps, in the leveled frame
     float q_align[4];        // w x y z: raw sensor → leveled sensor (gravity → +z)
@@ -40,7 +64,12 @@ static volatile uint32_t count;
 static calibration_t cal;
 static float q_total[4];         // raw sensor → foot-aligned sensor: q_align, then -yaw_fwd about z
 static bool mirror_y;            // right foot: flip y so +y = outward on both feet
-static bool calibrating;         // calibration reads raw samples through the ring
+static volatile bool calibrating;   // from the request until a result is in cal_phase
+static volatile bool cal_request, cal_cancel;
+static volatile uint8_t cal_phase;  // dt_cal_phase_t
+static volatile uint8_t cal_slides; // slides seen so far in this run
+static volatile uint8_t cal_spread; // degrees, last run
+static volatile bool moved;         // gravity no longer matches the calibration
 
 // ---- quaternion helpers (w, x, y, z) ----------------------------------------
 
@@ -112,6 +141,31 @@ void fusion_init(dt_role_t role)
     cal_load();
 }
 
+// Runs on every sample, in the calibrated frame with gyro bias removed.
+static void moved_check(const float a[3], const float g[3], uint32_t t_us)
+{
+    static float ref[3], sum[3];
+    static uint32_t run_start;
+    static bool in_run;
+    if (calibrating || !cal.valid) { in_run = false; return; }
+    float gm = sqrtf(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
+    float d[3] = {a[0] - ref[0], a[1] - ref[1], a[2] - ref[2]};
+    float dev = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (!in_run || gm > MOVED_GYRO_DPS || dev > MOVED_ACC_G) {
+        memcpy(ref, a, sizeof ref);
+        memset(sum, 0, sizeof sum);
+        run_start = t_us;
+        in_run = true;
+    }
+    for (int i = 0; i < 3; i++) sum[i] += a[i];
+    if (t_us - run_start < MOVED_STILL_MS * 1000u) return;
+    float n = sqrtf(sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]);
+    float tilt = n > 0 ? acosf(fminf(1.0f, fmaxf(-1.0f, sum[2] / n))) / DEG2RAD : 0;
+    if (tilt > MOVED_SET_DEG) moved = true;
+    else if (tilt < MOVED_CLEAR_DEG) moved = false;
+    in_run = false;
+}
+
 void fusion_task(void *arg)
 {
     imu_sample_t s;
@@ -130,6 +184,7 @@ void fusion_task(void *arg)
         q_rotate(q_total, a_raw, a);
         q_rotate(q_total, g_raw, g);
         for (int i = 0; i < 3; i++) g[i] -= cal.gyro_bias[i];
+        moved_check(a, g, s.t_us);
 
         madgwick_update_imu(&ahrs, g[0] * DEG2RAD, g[1] * DEG2RAD, g[2] * DEG2RAD, a[0], a[1], a[2], dt);
 
@@ -176,25 +231,59 @@ static void cue(uint8_t pattern)
     if (haptic_q) xQueueSend(haptic_q, &pattern, 0);
 }
 
-// Phase 1: 2 s still pose → gravity alignment and gyro bias. Returns false if not still.
-static bool calibrate_still(void)
+static float norm3(const float v[3])
 {
-    uint32_t start = count;
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    uint32_t end = count;
+    return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+}
 
-    float a[3] = {0}, g[3] = {0};
+// Waits until the board has been still for hold_ms. On success the means of the
+// still run go to a_out and g_out (either may be NULL). False on timeout or cancel.
+static bool wait_still(uint32_t hold_ms, uint32_t timeout_ms, float *a_out, float *g_out)
+{
+    uint32_t next = count, run_start = 0;
+    TickType_t t_start = xTaskGetTickCount();
+    float ref[3] = {0}, a[3] = {0}, g[3] = {0};
+    float last_gm = 0, last_dev = 0;
     int n = 0;
     fused_sample_t f;
-    for (uint32_t i = start; i < end; i++) {
-        if (!fusion_get(i, &f)) continue;
-        a[0] += f.raw.ax; a[1] += f.raw.ay; a[2] += f.raw.az;
-        g[0] += f.raw.gx; g[1] += f.raw.gy; g[2] += f.raw.gz;
-        n++;
+    while (!cal_cancel && xTaskGetTickCount() - t_start <= pdMS_TO_TICKS(timeout_ms)) {
+        while (next < count) {
+            if (!fusion_get(next, &f)) { next = count; n = 0; break; }
+            next++;
+            float fa[3] = {f.raw.ax, f.raw.ay, f.raw.az}, fg[3] = {f.raw.gx, f.raw.gy, f.raw.gz};
+            float d[3] = {fa[0] - ref[0], fa[1] - ref[1], fa[2] - ref[2]};
+            float gm = norm3(fg), dev = norm3(d);
+            if (n == 0 || gm > STILL_GYRO_DPS || dev > STILL_ACC_G) {
+                if (n) { last_gm = gm; last_dev = dev; }
+                memcpy(ref, fa, sizeof ref);
+                memset(a, 0, sizeof a);
+                memset(g, 0, sizeof g);
+                n = 0;
+                run_start = f.t_us;
+            }
+            for (int i = 0; i < 3; i++) { a[i] += fa[i]; g[i] += fg[i]; }
+            n++;
+            if (f.t_us - run_start >= hold_ms * 1000u) {
+                for (int i = 0; i < 3; i++) {
+                    if (a_out) a_out[i] = a[i] / n;
+                    if (g_out) g_out[i] = g[i] / n;
+                }
+                return true;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
-    if (n < 100) { DT_LOGW(TAG, "too few samples (%d)", n); return false; }
-    for (int i = 0; i < 3; i++) { a[i] /= n; g[i] /= n; }
-    float an = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    if (!cal_cancel) DT_LOGW(TAG, "not still within %lu ms (last motion: gyro %.1f dps, accel %.3f g)",
+                             (unsigned long)timeout_ms, last_gm, last_dev);
+    return false;
+}
+
+// Phase 1: wait for real stillness, then gravity alignment and gyro bias.
+static bool calibrate_still(void)
+{
+    float a[3], g[3];
+    if (!wait_still(CAL_STILL_MS, CAL_STILL_WAIT_MS, a, g)) return false;
+    float an = norm3(a);
     if (fabsf(an - 1.0f) > 0.15f) { DT_LOGW(TAG, "|a| = %.2f g, not still", an); return false; }
 
     float up[3] = {0, 0, 1}, a_unit[3] = {a[0] / an, a[1] / an, a[2] / an};
@@ -209,12 +298,11 @@ static bool calibrate_still(void)
     return true;
 }
 
-// Phase 2: the dancer slides the foot forward once. The velocity direction at peak
-// speed, in the world frame, is the toe direction; its angle from the sensor x
-// axis (also in the world frame) is yaw_fwd. Returns false if no slide was seen.
-static bool calibrate_forward(void)
+// Phase 2, one slide. The velocity direction at peak speed, in the world frame,
+// is the toe direction; its angle from the sensor x axis (also in the world
+// frame) goes to *yaw_out. False if no slide was seen.
+static bool detect_slide(float *yaw_out)
 {
-    DT_LOGI(TAG, "now slide this foot forward once");
     uint32_t next = count;
     TickType_t t_start = xTaskGetTickCount();
     bool moving = false;
@@ -224,6 +312,7 @@ static bool calibrate_forward(void)
     fused_sample_t f;
 
     for (;;) {
+        if (cal_cancel) return false;
         TickType_t el = xTaskGetTickCount() - t_start;
         if (!moving && el > pdMS_TO_TICKS(FWD_WAIT_MS)) break;
         while (next < count) {
@@ -273,19 +362,38 @@ done:
     }
     if (v_best < FWD_MIN_SPEED) { DT_LOGW(TAG, "slide too slow (%.3f g·s)", v_best); return false; }
 
-    cal.yaw_fwd = atan2f(v_dir[1], v_dir[0]) - atan2f(x_dir[1], x_dir[0]);
-    cal.fwd_valid = 1;
-    cal_compose();
-    madgwick_init(&ahrs, 0.1f);
-    DT_LOGI(TAG, "forward ok: toe is %.0f° from sensor x, peak %.3f g·s", cal.yaw_fwd / DEG2RAD, v_best);
+    *yaw_out = atan2f(v_dir[1], v_dir[0]) - atan2f(x_dir[1], x_dir[0]);
+    DT_LOGI(TAG, "slide: toe is %.0f° from sensor x, peak %.3f g·s", *yaw_out / DEG2RAD, v_best);
     return true;
 }
 
-void fusion_calibrate(void)
+// Between slides: the slide ends, the foot comes back, the foot settles. A foot
+// that never comes back just moves on after RETURN_WAIT_MS.
+static void wait_return(void)
 {
-    if (calibrating) return;
-    calibrating = true;
-    DT_LOGI(TAG, "calibrating: hold still for 2 s");
+    wait_still(RETURN_END_MS, RETURN_WAIT_MS, NULL, NULL);
+    uint32_t next = count;
+    TickType_t t_start = xTaskGetTickCount();
+    fused_sample_t f;
+    bool came_back = false;
+    while (!came_back && !cal_cancel && xTaskGetTickCount() - t_start <= pdMS_TO_TICKS(RETURN_WAIT_MS)) {
+        while (next < count) {
+            if (!fusion_get(next, &f)) { next = count; break; }
+            next++;
+            float a[3] = {f.raw.ax, f.raw.ay, f.raw.az}, g[3] = {f.raw.gx, f.raw.gy, f.raw.gz};
+            if (norm3(g) > RETURN_MOVE_DPS || fabsf(norm3(a) - 1.0f) > RETURN_MOVE_G) came_back = true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    if (came_back) wait_still(RETURN_STILL_MS, RETURN_STILL_WAIT_MS, NULL, NULL);
+}
+
+static void cal_run(void)
+{
+    DT_LOGI(TAG, "calibrating: waiting for %d ms of stillness", CAL_STILL_MS);
+    cal_slides = 0;
+    cal_spread = 0;
+    moved = false;
 
     // Phase 1 reads *unaligned* raw samples: temporarily identity-align.
     calibration_t prev = cal;
@@ -297,23 +405,93 @@ void fusion_calibrate(void)
         DT_LOGW(TAG, "keeping previous calibration");
         cal = prev;
         cal_compose();
-        calibrating = false;
+        if (cal_cancel) { cal_phase = DT_CAL_IDLE; return; }
+        cue(DT_HAPTIC_LONG);
+        cal_phase = DT_CAL_FAIL_STILL;
         return;
     }
-    cue(DT_HAPTIC_SHORT);                 // "now slide"
-    if (!calibrate_forward()) {
-        if (prev.valid && prev.fwd_valid) {
-            // Keep the old forward direction; the mounting has not changed much.
-            cal.yaw_fwd = prev.yaw_fwd; cal.fwd_valid = 1;
-            cal_compose();
-            DT_LOGW(TAG, "reusing previous forward direction (%.0f°)", cal.yaw_fwd / DEG2RAD);
-        } else {
-            DT_LOGW(TAG, "no forward direction: trusting the mounting (USB toward the toe)");
+
+    float yaws[CAL_SLIDES];
+    bool ok = true;
+    for (int i = 0; i < CAL_SLIDES && ok && !cal_cancel; i++) {
+        cal_phase = DT_CAL_SLIDE;
+        cue(DT_HAPTIC_SHORT);             // "now slide"
+        DT_LOGI(TAG, "now slide this foot forward (%d of %d)", i + 1, CAL_SLIDES);
+        ok = detect_slide(&yaws[i]);
+        if (ok) {
+            cal_slides = i + 1;
+            if (i + 1 < CAL_SLIDES) {
+                cal_phase = DT_CAL_RETURN;
+                wait_return();
+            }
         }
-        cue(DT_HAPTIC_LONG);
+    }
+    if (cal_cancel) {
+        DT_LOGI(TAG, "cancelled; keeping previous calibration");
+        cal = prev;
+        cal_compose();
+        madgwick_init(&ahrs, 0.1f);
+        cal_phase = DT_CAL_IDLE;
+        return;
+    }
+
+    // A failed gesture is reported as exactly that: tilt only, no toe direction.
+    // The old direction is never kept, since the strap may have moved since.
+    uint8_t result = DT_CAL_DONE;
+    if (!ok) {
+        result = DT_CAL_FAIL_SLIDE;
     } else {
-        cue(DT_HAPTIC_DOUBLE);
+        float sc = 0, cc = 0;
+        for (int i = 0; i < CAL_SLIDES; i++) { sc += sinf(yaws[i]); cc += cosf(yaws[i]); }
+        float mean = atan2f(sc, cc), spread = 0;
+        for (int i = 0; i < CAL_SLIDES; i++) {
+            float d = yaws[i] - mean;
+            d = fabsf(atan2f(sinf(d), cosf(d))) / DEG2RAD;
+            if (d > spread) spread = d;
+        }
+        cal_spread = (uint8_t)fminf(spread + 0.5f, 180.0f);
+        if (spread > CAL_MAX_SPREAD_DEG) {
+            DT_LOGW(TAG, "slides disagree: up to %.0f° from their mean", spread);
+            result = DT_CAL_FAIL_SPREAD;
+        } else {
+            cal.yaw_fwd = mean;
+            cal.fwd_valid = 1;
+            cal_compose();
+            madgwick_init(&ahrs, 0.1f);
+            DT_LOGI(TAG, "forward ok: toe is %.0f° from sensor x, slides within %.0f°", mean / DEG2RAD, spread);
+        }
     }
     cal_save();
-    calibrating = false;
+    cue(result == DT_CAL_DONE ? DT_HAPTIC_DOUBLE : DT_HAPTIC_LONG);
+    cal_phase = result;
 }
+
+void fusion_cal_task(void *arg)
+{
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+        if (!cal_request) continue;
+        cal_request = false;
+        cal_run();
+        calibrating = false;
+    }
+}
+
+void fusion_calibrate(void)
+{
+    if (calibrating) return;
+    cal_cancel = false;
+    cal_phase = DT_CAL_STILL;
+    calibrating = true;
+    cal_request = true;
+}
+
+void fusion_calibrate_cancel(void)
+{
+    if (calibrating) cal_cancel = true;
+}
+
+uint8_t fusion_cal_phase(void)  { return cal_phase; }
+uint8_t fusion_cal_slides(void) { return cal_slides; }
+uint8_t fusion_cal_spread(void) { return cal_spread; }
+bool fusion_board_moved(void)   { return moved; }

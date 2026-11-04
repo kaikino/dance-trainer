@@ -17,5 +17,5 @@
 #define DT_FW_MAJOR 0
 #endif
 #ifndef DT_FW_MINOR
-#define DT_FW_MINOR 2
+#define DT_FW_MINOR 3
 #endif

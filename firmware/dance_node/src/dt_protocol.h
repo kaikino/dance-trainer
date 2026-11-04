@@ -52,7 +52,19 @@ typedef enum {
     DT_CMD_SET_THRESHOLD,
     DT_CMD_SET_WINDOW,
     DT_CMD_SELFTEST,
+    DT_CMD_CAL_CANCEL,
 } dt_cmd_t;
+
+typedef enum {
+    DT_CAL_IDLE = 0,
+    DT_CAL_STILL,        // waiting for stillness
+    DT_CAL_SLIDE,        // waiting for a slide forward
+    DT_CAL_RETURN,       // foot coming back between slides
+    DT_CAL_DONE,
+    DT_CAL_FAIL_STILL,   // never still; previous calibration kept
+    DT_CAL_FAIL_SLIDE,   // a slide was not seen; tilt only
+    DT_CAL_FAIL_SPREAD,  // slides disagreed; tilt only
+} dt_cal_phase_t;
 
 #define DT_SCHED_FLAG_HEADER 0x01
 #define DT_SCHED_FLAG_LAST   0x02
@@ -64,11 +76,15 @@ typedef struct __attribute__((packed)) {
     uint16_t fw_version;   // major << 8 | minor
     uint8_t  battery_pct;
     uint8_t  mode;
-    uint8_t  cal_flags;    // DT_CAL_* bits
-} dt_status_t;             // 7 bytes (protocol 1 nodes before this field sent 6)
+    uint8_t  cal_flags;    // DT_CALF_* bits
+    uint8_t  cal_phase;    // dt_cal_phase_t
+    uint8_t  cal_slides;   // slides seen in the current or last run
+    uint8_t  cal_spread;   // degrees: worst slide from their mean, last run
+} dt_status_t;             // 10 bytes (older firmware sent 6, then 7)
 
-#define DT_CAL_STILL   0x01   // still pose done: tilt and gyro bias known
-#define DT_CAL_FORWARD 0x02   // slide gesture done: toe direction known
+#define DT_CALF_STILL   0x01  // still pose done: tilt and gyro bias known
+#define DT_CALF_FORWARD 0x02  // slides done and agreeing: toe direction known
+#define DT_CALF_MOVED   0x04  // gravity no longer matches: strap probably moved
 
 typedef struct __attribute__((packed)) {
     uint32_t t_app_ms;
@@ -115,6 +131,6 @@ typedef struct __attribute__((packed)) {
 #else
 #define DT_STATIC_ASSERT(c, m) _Static_assert(c, m)
 #endif
-DT_STATIC_ASSERT(sizeof(dt_status_t) == 7, "status size");
+DT_STATIC_ASSERT(sizeof(dt_status_t) == 10, "status size");
 DT_STATIC_ASSERT(sizeof(dt_step_event_t) == 12, "step event size");
 DT_STATIC_ASSERT(sizeof(dt_stream_batch_t) == 74, "stream batch size");

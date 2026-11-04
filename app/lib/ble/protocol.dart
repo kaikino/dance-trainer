@@ -25,7 +25,7 @@ enum Role { left, right }
 
 enum Haptic { none, short, double, long }
 
-enum Cmd { none, start, stop, calibrate, buzzTest, setThreshold, setWindow, selftest }
+enum Cmd { none, start, stop, calibrate, buzzTest, setThreshold, setWindow, selftest, calCancel }
 
 /// JSON name ↔ StepClass, as used in presets/*.json.
 const stepClassNames = {
@@ -42,19 +42,30 @@ const schedFlagHeader = 0x01;
 const schedFlagLast = 0x02;
 
 const calStill = 0x01; // still pose done: tilt and gyro bias known
-const calForward = 0x02; // slide gesture done: toe direction known
+const calForward = 0x02; // slides done and agreeing: toe direction known
+const calMoved = 0x04; // gravity no longer matches: the strap probably moved
+
+/// Progress of a calibration run, as the node reports it in Status.
+enum CalPhase { idle, still, slide, back, done, failStill, failSlide, failSpread }
 
 class Status {
   final int protocolVersion, fwVersion, batteryPct;
   final Role role;
   final Mode mode;
 
-  /// calStill | calForward bits, or null from firmware that predates the field.
+  /// calStill | calForward | calMoved bits, or null from firmware before the field.
   final int? calFlags;
-  Status(this.protocolVersion, this.role, this.fwVersion, this.batteryPct, this.mode, [this.calFlags]);
+
+  /// Null from firmware that cannot report calibration progress (before 0.3).
+  final CalPhase? calPhase;
+  final int calSlides, calSpreadDeg;
+
+  Status(this.protocolVersion, this.role, this.fwVersion, this.batteryPct, this.mode,
+      {this.calFlags, this.calPhase, this.calSlides = 0, this.calSpreadDeg = 0});
 
   bool get calibrated => (calFlags ?? 0) & calStill != 0;
   bool get knowsForward => (calFlags ?? 0) & calForward != 0;
+  bool get boardMoved => (calFlags ?? 0) & calMoved != 0;
 
   static Status parse(List<int> b) {
     final d = ByteData.sublistView(Uint8List.fromList(b));
@@ -64,7 +75,10 @@ class Status {
       d.getUint16(2, Endian.little),
       d.getUint8(4),
       Mode.values[d.getUint8(5)],
-      b.length >= 7 ? d.getUint8(6) : null,
+      calFlags: b.length >= 7 ? d.getUint8(6) : null,
+      calPhase: b.length >= 10 ? CalPhase.values[d.getUint8(7)] : null,
+      calSlides: b.length >= 10 ? d.getUint8(8) : 0,
+      calSpreadDeg: b.length >= 10 ? d.getUint8(9) : 0,
     );
   }
 

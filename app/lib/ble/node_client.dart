@@ -38,6 +38,7 @@ abstract class NodeClient extends ChangeNotifier {
   Future<void> start(Mode mode, int t0AppMs);
   Future<void> stop();
   Future<void> calibrate();
+  Future<void> cancelCalibration();
   Future<void> buzzTest(Haptic h);
   Future<void> setThreshold(int conf);
   Future<void> setWindow(int ms);
@@ -122,6 +123,8 @@ class BleNodeClient extends NodeClient {
   Future<void> stop() => _control!.write(encodeCmd(Cmd.stop));
   @override
   Future<void> calibrate() => _control!.write(encodeCmd(Cmd.calibrate));
+  @override
+  Future<void> cancelCalibration() => _control!.write(encodeCmd(Cmd.calCancel));
   @override
   Future<void> buzzTest(Haptic h) => _control!.write(encodeCmd(Cmd.buzzTest, [h.index]));
   @override

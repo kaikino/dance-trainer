@@ -26,6 +26,8 @@ class FakeNodeClient extends NodeClient {
   final _timers = <Timer>[];
   Timer? _streamTimer;
   int _seq = 0;
+  CalPhase _calPhase = CalPhase.idle;
+  int _calSlides = 0, _calRun = 0;
 
   /// Error rates for the simulated dancer.
   double pLate = 0.10, pWrong = 0.10, pMissed = 0.06;
@@ -43,7 +45,11 @@ class FakeNodeClient extends NodeClient {
   }
 
   void _publishStatus() {
-    status = Status(protocolVersion, role, 0x0002, role == Role.left ? 84 : 61, _mode, calibrated ? calStill | calForward : 0);
+    status = Status(protocolVersion, role, 0x0003, role == Role.left ? 84 : 61, _mode,
+        calFlags: calibrated ? calStill | calForward : 0,
+        calPhase: _calPhase,
+        calSlides: _calSlides,
+        calSpreadDeg: _calPhase == CalPhase.done ? 6 : 0);
     notifyListeners();
   }
 
@@ -114,12 +120,35 @@ class FakeNodeClient extends NodeClient {
     _publishStatus();
   }
 
+  /// Walks through the same phases as a real node, on a timer.
   @override
   Future<void> calibrate() async {
-    await Future<void>.delayed(const Duration(seconds: 3));
-    calibrated = true;
+    final run = ++_calRun;
+    Future<void> phase(CalPhase p, int ms, {int? slides}) async {
+      if (run != _calRun) return;
+      _calPhase = p;
+      if (slides != null) _calSlides = slides;
+      _publishStatus();
+      await Future<void>.delayed(Duration(milliseconds: ms));
+    }
+
+    unawaited(() async {
+      await phase(CalPhase.still, 1800, slides: 0);
+      for (var i = 0; i < 3; i++) {
+        await phase(CalPhase.slide, 1500, slides: i);
+        if (i < 2) await phase(CalPhase.back, 1500, slides: i + 1);
+      }
+      if (run != _calRun) return;
+      calibrated = true;
+      await phase(CalPhase.done, 0, slides: 3);
+    }());
+  }
+
+  @override
+  Future<void> cancelCalibration() async {
+    _calRun++;
+    _calPhase = CalPhase.idle;
     _publishStatus();
-    debugPrint('fake $roleLabel: calibrated');
   }
 
   @override

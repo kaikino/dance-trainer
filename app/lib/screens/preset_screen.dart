@@ -5,6 +5,7 @@ import '../ble/node_client.dart';
 import '../ble/protocol.dart';
 import '../models/preset.dart';
 import '../store/settings.dart';
+import 'calibrate_screen.dart';
 import 'dance_screen.dart';
 import 'sound_sync_dialog.dart';
 
@@ -54,6 +55,12 @@ class _PresetScreenState extends State<PresetScreen> {
     });
   }
 
+  /// Connected nodes whose firmware says the toe direction is unknown or stale.
+  List<NodeClient> get _needCalibration => widget.manager.nodes.where((n) {
+        final st = n.status;
+        return n.connected && st != null && st.calFlags != null && (!st.knowsForward || st.boardMoved);
+      }).toList();
+
   @override
   Widget build(BuildContext context) {
     final presets = _presets;
@@ -64,6 +71,28 @@ class _PresetScreenState extends State<PresetScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                if (_needCalibration.isNotEmpty)
+                  Card(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: ListTile(
+                      leading: const Icon(Icons.warning_amber),
+                      title: Text('${_needCalibration.map((n) => n.roleLabel == 'L' ? 'Left' : 'Right').join(' and ')} '
+                          '${_needCalibration.length == 1 ? 'ankle needs' : 'ankles need'} calibrating'),
+                      subtitle: const Text('Steps will be judged in the wrong direction until then.'),
+                      trailing: FilledButton(
+                        onPressed: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => CalibrateScreen(manager: widget.manager, nodes: _needCalibration),
+                            ),
+                          );
+                          if (mounted) setState(() {});
+                        },
+                        child: const Text('Calibrate'),
+                      ),
+                    ),
+                  ),
                 RadioGroup<Preset>(
                   groupValue: _selected,
                   onChanged: (v) => setState(() => _selected = v),

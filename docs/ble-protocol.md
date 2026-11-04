@@ -36,7 +36,7 @@ role:       0 left, 1 right
 haptic:     1 short (timing error), 2 double (wrong step), 3 long (test)
 ```
 
-## Status (0002) — 7 bytes
+## Status (0002) — 10 bytes
 
 | field | type | notes |
 | --- | --- | --- |
@@ -45,10 +45,14 @@ haptic:     1 short (timing error), 2 double (wrong step), 3 long (test)
 | fw_version | u16 | major<<8 \| minor |
 | battery_pct | u8 | 0–100 |
 | mode | u8 | |
-| cal_flags | u8 | bit 0 = still pose done (tilt known), bit 1 = slide gesture done (toe direction known) |
+| cal_flags | u8 | bit 0 = still pose done (tilt known), bit 1 = slides done and agreeing (toe direction known), bit 2 = still, but gravity is over 20° from calibrated "up" (strap probably moved) |
+| cal_phase | u8 | 0 idle, 1 waiting for stillness, 2 waiting for a slide, 3 foot coming back, 4 done, 5 failed: never still (previous calibration kept), 6 failed: slide not seen (tilt only), 7 failed: slides disagree (tilt only) |
+| cal_slides | u8 | slides seen in the current or last run |
+| cal_spread | u8 | degrees: worst slide from their mean, last run |
 
-Notified every 2 s. Firmware before `cal_flags` sent 6 bytes; the app treats a
-missing field as "unknown".
+Notified every 2 s and within 100 ms of any calibration change. A result stays
+in `cal_phase` until the next run. Older firmware sent 6 or 7 bytes; the app
+treats missing fields as "unknown".
 
 ## Time sync (0003)
 

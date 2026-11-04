@@ -44,7 +44,11 @@ static void fill_status(dt_status_t *s)
     s->fw_version = (DT_FW_MAJOR << 8) | DT_FW_MINOR;
     s->battery_pct = battery_pct();
     s->mode = judge_mode();
-    s->cal_flags = (fusion_is_calibrated() ? DT_CAL_STILL : 0) | (fusion_has_forward() ? DT_CAL_FORWARD : 0);
+    s->cal_flags = (fusion_is_calibrated() ? DT_CALF_STILL : 0) | (fusion_has_forward() ? DT_CALF_FORWARD : 0)
+                 | (fusion_board_moved() ? DT_CALF_MOVED : 0);
+    s->cal_phase = fusion_cal_phase();
+    s->cal_slides = fusion_cal_slides();
+    s->cal_spread = fusion_cal_spread();
 }
 
 static void push_status(void)
@@ -95,6 +99,7 @@ static void on_control(uint16_t, BLECharacteristic *, uint8_t *data, uint16_t le
     case DT_CMD_SET_THRESHOLD: if (len > 1) judge_set_threshold(data[1]); break;
     case DT_CMD_SET_WINDOW:    if (len > 2) { uint16_t w; memcpy(&w, data + 1, 2); judge_set_window(w); } break;
     case DT_CMD_SELFTEST:      model_selftest(); break;
+    case DT_CMD_CAL_CANCEL:    fusion_calibrate_cancel(); break;
     default: return;
     }
     push_status();
@@ -182,12 +187,22 @@ static void stream_task(void *)
     }
 }
 
-// Refreshes battery + mode in Status every 2 s.
+// Refreshes battery + mode in Status every 2 s, and at once when calibration
+// progresses so the app can guide the dancer through it.
 static void status_task(void *)
 {
+    uint32_t last_cal = 0;
+    int ticks = 0;
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        push_status();
+        vTaskDelay(pdMS_TO_TICKS(100));
+        dt_status_t s;
+        fill_status(&s);
+        uint32_t cal = s.cal_flags | s.cal_phase << 8 | s.cal_slides << 16 | (uint32_t)s.cal_spread << 24;
+        if (cal != last_cal || ++ticks >= 20) {
+            last_cal = cal;
+            ticks = 0;
+            push_status();
+        }
     }
 }
 
@@ -225,7 +240,7 @@ void ble_init(dt_role_t role)
     chr_control.setProperties(CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP);
     chr_control.setPermission(SECMODE_OPEN, SECMODE_OPEN);
     chr_control.setMaxLen(8);
-    chr_control.setWriteCallback(on_control);            // deferred: calibrate blocks up to ~8 s
+    chr_control.setWriteCallback(on_control);            // deferred: not on the BLE task
     chr_control.begin();
 
     chr_event.setProperties(CHR_PROPS_NOTIFY);

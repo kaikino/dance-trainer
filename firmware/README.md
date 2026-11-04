@@ -26,7 +26,8 @@ The compile-time role is only a default. Over the serial console, `role L` or
 | Command | Does |
 | --- | --- |
 | `status` | role, mode, battery, BLE state, calibration, node clock |
-| `cal` | calibration (same as the app's Calibrate): hold still 2 s, short buzz, then slide the foot forward once; double buzz = done, long buzz = no slide seen |
+| `cal` | calibration (same as the app's Calibrate): keep still until it starts by itself, then short buzz = slide the foot forward, three times, bringing it back between slides. Double buzz = done, long buzz = failed (see the log). Each slide's angle is logged |
+| `calcancel` | stop a calibration and restore the previous one |
 | `buzz [1\|2\|3]` | short / double / long motor pattern |
 | `selftest` | runs the CNN on 20 embedded windows, prints `idx,class,conf,us` |
 | `role L\|R` | store role and reboot |

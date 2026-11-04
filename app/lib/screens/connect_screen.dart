@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
+import 'calibrate_screen.dart';
 import 'live_view_screen.dart';
 import 'preset_screen.dart';
 
@@ -17,7 +18,6 @@ class ConnectScreen extends StatefulWidget {
 class _ConnectScreenState extends State<ConnectScreen> {
   NodeManager get m => widget.manager;
   bool _scanning = false;
-  String? _calibrating;
   final _synced = <Role, int>{};
 
   @override
@@ -45,33 +45,12 @@ class _ConnectScreenState extends State<ConnectScreen> {
     }
   }
 
-  Future<void> _calibrate(NodeClient n) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Text('Calibrate ${n.roleLabel == 'L' ? 'left' : 'right'} ankle'),
-        content: const Text('1. Stand still for 2 seconds.\n'
-            '2. When the node buzzes once, slide that foot forward about 30 cm.\n\n'
-            'Two buzzes = done. One long buzz = the slide was not seen, try again.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Start')),
-        ],
-      ),
+  Future<void> _calibrate(List<NodeClient> nodes) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => CalibrateScreen(manager: m, nodes: nodes)),
     );
-    if (ok != true) return;
-    setState(() => _calibrating = n.roleLabel);
-    try {
-      await n.calibrate();
-      await Future<void>.delayed(const Duration(seconds: 9));
-    } catch (e) {
-      _snack('Calibrate failed: $e');
-      return;
-    } finally {
-      if (mounted) setState(() => _calibrating = null);
-    }
-    // Let the dancer check the result straight away.
-    if (mounted) _openLiveView();
+    if (mounted) setState(() {});
   }
 
   Future<void> _sync(NodeClient n) async {
@@ -101,6 +80,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
               : 'Switch both ankle nodes on, then scan.'),
           const SizedBox(height: 12),
           for (final n in m.nodes) _nodeCard(n),
+          if (m.nodes.every((n) => n.connected)) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _calibrate(m.nodes),
+              icon: const Icon(Icons.straighten),
+              label: const Text('Calibrate both feet'),
+            ),
+          ],
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: anyConnected
@@ -154,15 +141,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
                     color: n.connected ? Colors.green : Colors.grey),
               ],
             ),
+            if (n.connected && (st?.boardMoved ?? false))
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text('Board moved on the strap? Calibrate again.', style: TextStyle(color: Colors.orange)),
+              ),
             if (n.connected) ...[
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 children: [
-                  OutlinedButton(
-                    onPressed: _calibrating == null ? () => _calibrate(n) : null,
-                    child: Text(_calibrating == n.roleLabel ? 'Calibrating…' : 'Calibrate'),
-                  ),
+                  OutlinedButton(onPressed: () => _calibrate([n]), child: const Text('Calibrate')),
                   OutlinedButton(onPressed: () => _sync(n), child: const Text('Sync clock')),
                   OutlinedButton(onPressed: () => n.buzzTest(Haptic.double), child: const Text('Buzz')),
                   OutlinedButton.icon(

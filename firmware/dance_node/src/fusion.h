@@ -33,13 +33,21 @@ void fusion_task(void *arg);                  // sample_q → ring
 bool fusion_get(uint32_t idx, fused_sample_t *out);  // idx = absolute sample count
 uint32_t fusion_count(void);                  // samples written so far
 
-// Two phases, blocking, up to ~8 s: (1) 2 s still pose → gravity alignment and
-// gyro bias, then a short buzz; (2) the dancer slides this foot forward once →
-// toe direction. Double buzz = both done, long buzz = still pose only. Stored
-// in flash, so a node keeps its calibration across power cycles.
+// Runs in its own task; these calls return at once and fusion_cal_phase() follows
+// progress. (1) Waits for 1.5 s of real stillness → gravity alignment and gyro
+// bias. (2) Three slides forward, foot brought back between them; they must agree
+// within 15°. Short buzz = slide now, double buzz = done, long buzz = failed. A
+// failed slide leaves the node tilt-only rather than keeping an old direction.
+// Stored in flash, so a node keeps its calibration across power cycles.
+void fusion_cal_task(void *arg);
 void fusion_calibrate(void);
+void fusion_calibrate_cancel(void);           // restores the previous calibration
+uint8_t fusion_cal_phase(void);               // dt_cal_phase_t
+uint8_t fusion_cal_slides(void);              // slides seen in this run
+uint8_t fusion_cal_spread(void);              // degrees: worst slide from their mean
+bool fusion_board_moved(void);                // still, but gravity is far from calibrated "up"
 bool fusion_is_calibrated(void);              // still pose done
-bool fusion_has_forward(void);                // slide-forward gesture done too
+bool fusion_has_forward(void);                // slides done and agreeing too
 
 #ifdef __cplusplus
 }

@@ -46,6 +46,7 @@ void app_setup(void)
     // Stack sizes are in 32-bit words. Priorities: 4 highest; Bluefruit runs at 3.
     if (have_imu) xTaskCreate(imu_task, "imu", 512, NULL, TASK_PRIO_HIGHEST, NULL);
     xTaskCreate(fusion_task,      "fusion", 1024, NULL, TASK_PRIO_HIGH,   NULL);
+    xTaskCreate(fusion_cal_task,  "cal",    1024, NULL, TASK_PRIO_NORMAL, NULL);
     xTaskCreate(detect_task,      "detect", 1024, NULL, TASK_PRIO_NORMAL, NULL);
     xTaskCreate(infer_judge_task, "judge",  1536, NULL, TASK_PRIO_NORMAL, NULL);
     xTaskCreate(haptic_task,      "haptic", 256,  NULL, TASK_PRIO_NORMAL, NULL);
@@ -54,7 +55,7 @@ void app_setup(void)
 
 static void help(void)
 {
-    Serial.println("commands: status | cal | buzz [1|2|3] | selftest | role L|R | reboot | help");
+    Serial.println("commands: status | cal | calcancel | buzz [1|2|3] | selftest | role L|R | reboot | help");
 }
 
 static void handle(char *line)
@@ -62,12 +63,15 @@ static void handle(char *line)
     char *arg = strchr(line, ' ');
     if (arg) *arg++ = 0;
     if (!strcmp(line, "status")) {
-        Serial.printf("role=%s mode=%d battery=%u mV (%u%%) ble=%s calibrated=%d t=%lu us\n",
+        Serial.printf("role=%s mode=%d battery=%u mV (%u%%) ble=%s calibrated=%d forward=%d moved=%d t=%lu us\n",
                       dt_role() == DT_ROLE_LEFT ? "L" : "R", (int)judge_mode(), battery_mv(), battery_pct(),
                       ble_connected() ? "connected" : "advertising", (int)fusion_is_calibrated(),
+                      (int)fusion_has_forward(), (int)fusion_board_moved(),
                       (unsigned long)dt_now_us());
     } else if (!strcmp(line, "cal")) {
         fusion_calibrate();
+    } else if (!strcmp(line, "calcancel")) {
+        fusion_calibrate_cancel();
     } else if (!strcmp(line, "buzz")) {
         uint8_t p = arg ? (uint8_t)atoi(arg) : DT_HAPTIC_LONG;
         xQueueSend(haptic_q, &p, 0);
