@@ -156,21 +156,24 @@ class NodeManager extends ChangeNotifier {
       }
       return;
     }
-    await FlutterBluePlus.startScan(
-      withNames: ['DT-L', 'DT-R'],
-      timeout: const Duration(seconds: 8),
-    );
+    // Connect each node as it is seen. The scan ends when both are found or
+    // the timeout passes, so one node alone does not leave it hanging.
     final seen = <String>{};
-    await for (final results in FlutterBluePlus.scanResults) {
+    final sub = FlutterBluePlus.onScanResults.listen((results) {
       for (final r in results) {
         final name = r.advertisementData.advName;
         if (!seen.add(name)) continue;
         final node = (name == 'DT-L' ? left : right) as BleNodeClient;
         if (!node.connected) unawaited(node.connect(r.device));
       }
-      if (seen.length == 2) break;
-    }
-    await FlutterBluePlus.stopScan();
+      if (seen.length == 2) unawaited(FlutterBluePlus.stopScan());
+    });
+    await FlutterBluePlus.startScan(
+      withNames: ['DT-L', 'DT-R'],
+      timeout: const Duration(seconds: 8),
+    );
+    await FlutterBluePlus.isScanning.where((s) => !s).first;
+    await sub.cancel();
   }
 
   Future<void> syncAll() => Future.wait(nodes.where((n) => n.connected).map((n) => n.syncTime()));
