@@ -89,11 +89,12 @@ app reads Status.mode to confirm it is idle before writing.
 | --- | --- | --- |
 | 1 start | `mode u8, t0_node_us u32` | beat 1 is at `t0_node_us`; mode 1 capture or 2 dance |
 | 2 stop | — | back to idle |
-| 3 calibrate | — | 2 s still pose; stores gravity alignment + gyro bias in NVS |
+| 3 calibrate | — | starts a calibration run in the background; follow it in Status `cal_phase`. Stored in flash |
 | 4 buzz_test | `pattern u8` | fires a haptic pattern |
 | 5 set_threshold | `conf u8` | min confidence (0–255) to buzz; default 160 |
 | 6 set_window | `ms u16` | timing tolerance ± ms; default 150 |
 | 7 selftest | — | runs the model on stored windows, prints to serial |
+| 8 cal_cancel | — | stops a calibration run and restores the previous calibration |
 
 ## Step event (0006) — 12 bytes, notify
 
