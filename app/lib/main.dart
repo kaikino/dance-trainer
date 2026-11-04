@@ -23,6 +23,9 @@ class DanceTrainerApp extends StatelessWidget {
     return MaterialApp(
       title: fakeNodes ? 'Dance Trainer (simulated nodes)' : 'Dance Trainer',
       theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
+      // Android 15 draws apps edge to edge; keep every screen's bottom buttons
+      // clear of the navigation bar (the app bars already handle the top).
+      builder: (context, child) => SafeArea(top: false, child: child!),
       home: ConnectScreen(manager: manager),
     );
   }

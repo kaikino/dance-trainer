@@ -71,7 +71,9 @@ Header chunk (7 bytes):
 | n_steps | u16 |
 
 Step chunk: `flags u8`, then N × 3 bytes `(beat_x100 u16, step_class u8)` for
-the steps meant for *this* node (the app filters by foot). Max 80 steps per chunk.
+the steps meant for *this* node (the app filters by foot). The node accepts up
+to 80 steps per chunk, but the app sends 6 (19 bytes) so each write fits one
+27-byte link-layer packet: multi-packet writes dropped the link on our tablet.
 Node replaces its schedule when the header arrives and acknowledges nothing;
 app reads Status.mode to confirm it is idle before writing.
 

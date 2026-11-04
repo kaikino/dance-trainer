@@ -135,7 +135,9 @@ class StreamBatch {
 /// Builds the chunked Schedule writes for one node. `steps` is already filtered
 /// to this node's foot. Each entry: (beat, class).
 List<Uint8List> encodeSchedule(int presetId, double bpm, List<(double, StepClass)> steps) {
-  const maxPerChunk = 80;
+  // 6 steps = 19-byte writes, which fit one 27-byte link-layer packet. Longer
+  // writes (split across packets) dropped the link on the PEICHENG tablet.
+  const maxPerChunk = 6;
   final chunks = <Uint8List>[];
   final header = ByteData(7)
     ..setUint8(0, schedFlagHeader | (steps.isEmpty ? schedFlagLast : 0))
