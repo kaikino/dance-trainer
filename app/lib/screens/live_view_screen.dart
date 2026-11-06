@@ -9,7 +9,7 @@ import '../ble/protocol.dart';
 /// Live check of each node's calibration: one view per foot of a flat,
 /// foot-shaped sole seen from behind and a little to the outside, with its
 /// shadow on the floor. It turns and tilts with the foot, and is pushed off the
-/// centre mark in the direction the foot is accelerating.
+/// centre mark the way the foot is moving, further when faster.
 ///
 /// Everything comes from the idle-mode Stream: the orientation quaternion
 /// (calibrated sensor frame → world) and the foot-frame acceleration (+x toe,
@@ -85,8 +85,8 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                   padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
                   child: Text(
                     'Stand with your toes pointing forward and tap Set straight ahead. Turn your toe, '
-                    'lift it, roll onto an edge: the foot on screen should copy you. Slide or kick: it '
-                    'jumps off the centre mark the way you pushed it.',
+                    'lift it, roll onto an edge: the foot on screen should copy you. Slide or kick: the '
+                    'foot moves off the centre mark the way it is going, further when faster.',
                   ),
                 ),
                 Expanded(
@@ -128,8 +128,13 @@ class _FootState {
     [0.0, 0.0, 1.0],
   ];
 
-  /// Smoothed acceleration in the world, g: forward and toward the dancer's left.
-  double accFwd = 0, accLeft = 0;
+  /// Estimated velocity along the floor, m/s: forward and toward the dancer's left.
+  /// Integrated from acceleration, so it drifts; it leaks back to zero and is
+  /// reset whenever the foot has been still for [_stillSamples] samples.
+  double velFwd = 0, velLeft = 0;
+  int _still = 0;
+  static const _dt = 0.02; // idle-mode Stream: 50 Hz
+  static const _stillG = 0.06, _stillSamples = 5, _leakS = 0.6;
 
   bool get left => node.role == Role.left;
   bool get seen => _seen;
@@ -173,9 +178,18 @@ class _FootState {
     final fx = s.ax / 1000, fy = (left ? 1 : -1) * s.ay / 1000;
     final wx = cos(heading) * fx - sin(heading) * fy;
     final wy = sin(heading) * fx + cos(heading) * fy;
-    const a = 0.3;
-    accFwd += a * (wx - accFwd);
-    accLeft += a * (wy - accLeft);
+    if (sqrt(wx * wx + wy * wy) < _stillG) {
+      _still++;
+    } else {
+      _still = 0;
+    }
+    if (_still >= _stillSamples) {
+      velFwd = velLeft = 0;
+    } else {
+      final leak = exp(-_dt / _leakS);
+      velFwd = (velFwd + wx * 9.81 * _dt) * leak;
+      velLeft = (velLeft + wy * 9.81 * _dt) * leak;
+    }
     _seen = true;
     return true;
   }
@@ -214,6 +228,8 @@ class _FootPanel extends StatelessWidget {
       if (_angle(foot.toeUp, 'up', 'down') case final s?) 'toe $s',
       if (_angle(foot.outerEdgeUp, 'up', 'down') case final s?) 'outer edge $s',
     ];
+    final speed = sqrt(foot.velFwd * foot.velFwd + foot.velLeft * foot.velLeft);
+    if (speed >= _FootPainter.minSpeed) parts.add('moving ${speed.toStringAsFixed(1)} m/s');
     final caption = !foot.seen
         ? 'Waiting for data…'
         : parts.isEmpty
@@ -257,8 +273,9 @@ class _FootPainter extends CustomPainter {
 
   static const lift = 0.22, thick = 0.07;
 
-  /// Acceleration that pushes the foot `reach` away from the centre mark, g.
-  static const fullScale = 0.8, reach = 0.3;
+  /// Speed that moves the foot all the way to the ring, m/s; the ring's radius
+  /// in foot lengths; speeds below minSpeed draw the foot centred.
+  static const fullSpeed = 1.0, reach = 0.3, minSpeed = 0.05;
 
   /// Sole outline, convex: rounded heel, wider at the ball.
   static final List<(double, double)> outline = () {
@@ -291,16 +308,16 @@ class _FootPainter extends CustomPainter {
     final c = Offset(size.width / 2, size.height * 0.58);
     Offset proj(_V3 p) => c + Offset(_dot(p, r), -_dot(p, u)) * scale;
 
-    // Push from acceleration, in the world (forward, left).
-    var px = foot.accFwd / fullScale, py = foot.accLeft / fullScale;
-    final pd = sqrt(px * px + py * py);
-    if (pd < 0.04) {
-      px = py = 0;
-    } else if (pd > 1) {
-      px /= pd;
-      py /= pd;
+    // Offset from the centre mark: velocity along the floor, (forward, left).
+    var ox = foot.velFwd / fullSpeed, oy = foot.velLeft / fullSpeed;
+    final od = sqrt(ox * ox + oy * oy);
+    if (od * fullSpeed < minSpeed) {
+      ox = oy = 0;
+    } else if (od > 1) {
+      ox /= od;
+      oy /= od;
     }
-    final offset = (px * reach, py * reach);
+    final offset = (ox * reach, oy * reach);
 
     _V3 world((double, double) p, double z) {
       final v = (p.$1, p.$2, z);
@@ -317,9 +334,12 @@ class _FootPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
 
-    // Floor: the reach ring around the centre mark, and the straight-ahead line.
+    // Floor: the ring the foot moves out to at full speed, and the straight-ahead line.
     canvas.drawPath(
-        Path()..addPolygon([for (var a = 0; a <= 360; a += 10) proj((reach * cos(a * pi / 180), reach * sin(a * pi / 180), 0))], true),
+        Path()
+          ..addPolygon(
+              [for (var a = 0; a <= 360; a += 10) proj((reach * cos(a * pi / 180), reach * sin(a * pi / 180), 0))],
+              true),
         guide);
     canvas.drawLine(proj((-0.65, 0, 0)), proj((0.75, 0, 0)), guide);
     canvas.drawPath(
