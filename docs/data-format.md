@@ -19,7 +19,7 @@ ml/data/<session_id>/
   "session_id": "20261020-183000-kai",
   "dancer": "kai",
   "preset_id": 1,
-  "preset_name": "Box step",
+  "preset_name": "Basic forward and back",
   "bpm": 100,
   "mode": "capture",
   "t0_app_ms": 1760985000123,

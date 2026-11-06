@@ -29,7 +29,7 @@ def load_preset(preset_id: int) -> dict:
 
 def expand(preset: dict) -> list[tuple[float, str, int]]:
     steps = preset["steps"]
-    span = max(s["beat"] for s in steps)
+    span = preset.get("length_beats") or max(s["beat"] for s in steps)
     reps = preset.get("repeats", 1) if preset.get("loop") else 1
     return [(s["beat"] + r * span, s["foot"], CLASS_NAMES[s["class"]]) for r in range(reps) for s in steps]
 

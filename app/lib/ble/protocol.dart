@@ -15,7 +15,8 @@ final String uuidControl = dtUuid(0x0005);
 final String uuidStepEvent = dtUuid(0x0006);
 final String uuidStream = dtUuid(0x0007);
 
-enum StepClass { none, inPlace, forward, back, sideOut, cross, kick }
+/// sideIn: inward to close up beside the other foot; cross: inward past it.
+enum StepClass { none, inPlace, forward, back, sideOut, cross, kick, sideIn }
 
 enum Verdict { unjudged, correct, offBeat, wrongStep, missed, extra }
 
@@ -36,6 +37,7 @@ const stepClassNames = {
   'side_out': StepClass.sideOut,
   'cross': StepClass.cross,
   'kick': StepClass.kick,
+  'side_in': StepClass.sideIn,
 };
 
 const schedFlagHeader = 0x01;

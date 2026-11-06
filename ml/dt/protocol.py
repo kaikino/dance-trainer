@@ -12,6 +12,7 @@ class StepClass(IntEnum):
     SIDE_OUT = 4
     CROSS = 5
     KICK = 6
+    SIDE_IN = 7  # inward to close up beside the other foot, not crossing
 
 
 class Verdict(IntEnum):
@@ -31,5 +32,6 @@ CLASS_NAMES = {
     "side_out": StepClass.SIDE_OUT,
     "cross": StepClass.CROSS,
     "kick": StepClass.KICK,
+    "side_in": StepClass.SIDE_IN,
 }
 N_CLASSES = len(StepClass)

@@ -57,7 +57,8 @@ class _StepChartPainter extends CustomPainter {
   final ThemeData theme;
 
   /// Arrow for a step, as the dancer sees the chart (left lane = left foot).
-  /// Side steps point outward, crosses curve inward over the other foot.
+  /// Side steps point outward, closes point straight inward, crosses curve
+  /// inward over the other foot.
   /// Material icon glyphs, not Unicode arrows, which Android draws as emoji.
   static IconData? _icon(StepClass c, Role foot) {
     final left = foot == Role.left;
@@ -65,6 +66,7 @@ class _StepChartPainter extends CustomPainter {
       StepClass.forward => Icons.arrow_upward,
       StepClass.back => Icons.arrow_downward,
       StepClass.sideOut => left ? Icons.arrow_back : Icons.arrow_forward,
+      StepClass.sideIn => left ? Icons.arrow_forward : Icons.arrow_back,
       StepClass.cross => left ? Icons.redo : Icons.undo,
       StepClass.kick => Icons.keyboard_double_arrow_up,
       StepClass.inPlace => Icons.adjust,
@@ -76,7 +78,8 @@ class _StepChartPainter extends CustomPainter {
   static const _caption = {
     StepClass.forward: 'forward',
     StepClass.back: 'back',
-    StepClass.sideOut: 'side',
+    StepClass.sideOut: 'out',
+    StepClass.sideIn: 'in',
     StepClass.cross: 'cross',
     StepClass.kick: 'kick',
     StepClass.inPlace: 'tap',

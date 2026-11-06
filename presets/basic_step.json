@@ -1,0 +1,17 @@
+{
+  "id": 3,
+  "name": "Basic forward and back",
+  "bpm": 96,
+  "count_in_beats": 4,
+  "loop": true,
+  "repeats": 8,
+  "length_beats": 8,
+  "steps": [
+    {"beat": 1.0, "foot": "L", "class": "forward"},
+    {"beat": 2.0, "foot": "R", "class": "in_place"},
+    {"beat": 3.0, "foot": "L", "class": "back"},
+    {"beat": 5.0, "foot": "R", "class": "back"},
+    {"beat": 6.0, "foot": "L", "class": "in_place"},
+    {"beat": 7.0, "foot": "R", "class": "forward"}
+  ]
+}

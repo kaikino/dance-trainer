@@ -23,6 +23,7 @@ typedef enum {
     DT_CLASS_SIDE_OUT,
     DT_CLASS_CROSS,
     DT_CLASS_KICK,
+    DT_CLASS_SIDE_IN,   // inward to close up beside the other foot, not crossing
     DT_CLASS_COUNT
 } dt_step_class_t;
 

@@ -28,7 +28,8 @@ PROFILE = {
     StepClass.FORWARD: (0.9, 0.0, 1.8),
     StepClass.BACK: (-0.9, 0.0, 1.8),
     StepClass.SIDE_OUT: (0.0, 0.9, 1.8),
-    StepClass.CROSS: (0.1, -0.9, 1.8),
+    StepClass.CROSS: (0.1, -1.3, 1.8),  # travels past the other foot: about twice a close
+    StepClass.SIDE_IN: (0.0, -0.6, 1.7),
     StepClass.KICK: (1.8, 0.0, 2.4),
 }
 
@@ -58,7 +59,7 @@ def synth_session(dancer: str, preset: dict, idx: int, rng, out_dir: Path) -> No
     bpm = preset["bpm"] * rng.uniform(0.9, 1.1)
     beat_ms = 60000 / bpm
     steps = preset["steps"]
-    span = max(s["beat"] for s in steps)
+    span = preset.get("length_beats") or max(s["beat"] for s in steps)
     reps = preset.get("repeats", 1) if preset.get("loop") else 1
     sched = [(s["beat"] + r * span, s["foot"], CLASS_NAMES[s["class"]]) for r in range(reps) for s in steps]
     total_ms = (max(b for b, _, _ in sched) + 2) * beat_ms + 2000

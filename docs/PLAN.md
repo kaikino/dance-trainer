@@ -207,7 +207,7 @@ from several dancers, and replaces the rules on the node if it wins.
 The whole team, at a real rehearsal with music on a big screen:
 
 - Two battery-powered nodes on straps, connected to the app.
-- Box step with music and the step chart; a deliberate wrong step buzzes
+- A routine with music and the step chart; a deliberate wrong step buzzes
   the right ankle; Performance mode scores it.
 - Latency, battery, and skew numbers written down.
 - A video of this, kept as the backup demo.

@@ -35,7 +35,9 @@ class Preset {
     final raw = (j['steps'] as List).cast<Map<String, dynamic>>();
     final loop = j['loop'] == true;
     final repeats = loop ? (j['repeats'] as int? ?? 1) : 1;
-    final patternBeats = raw.map((s) => (s['beat'] as num).toDouble()).reduce((a, b) => a > b ? a : b);
+    // One loop lasts length_beats (lets a pattern end on a rest), else up to its last step.
+    final patternBeats = (j['length_beats'] as num?)?.toDouble() ??
+        raw.map((s) => (s['beat'] as num).toDouble()).reduce((a, b) => a > b ? a : b);
     final steps = <PresetStep>[];
     for (var r = 0; r < repeats; r++) {
       for (final s in raw) {

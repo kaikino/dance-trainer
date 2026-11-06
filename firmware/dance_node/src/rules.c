@@ -7,6 +7,7 @@
 // Displacement thresholds, in the same int8 units as the window. Tune on data.
 #define RULE_MOVE_MIN   40.0f   // below this → in_place
 #define RULE_KICK_MIN   90.0f   // forward and large → kick
+#define RULE_CROSS_MIN  270.0f  // inward and large → cross; smaller → side_in (close). From synthetic data
 
 dt_step_class_t rules_classify(const step_window_t *w, uint8_t *confidence)
 {
@@ -30,5 +31,6 @@ dt_step_class_t rules_classify(const step_window_t *w, uint8_t *confidence)
         if (dx > 0) return mag > RULE_KICK_MIN ? DT_CLASS_KICK : DT_CLASS_FORWARD;
         return DT_CLASS_BACK;
     }
-    return dy > 0 ? DT_CLASS_SIDE_OUT : DT_CLASS_CROSS;
+    if (dy > 0) return DT_CLASS_SIDE_OUT;
+    return mag > RULE_CROSS_MIN ? DT_CLASS_CROSS : DT_CLASS_SIDE_IN;
 }

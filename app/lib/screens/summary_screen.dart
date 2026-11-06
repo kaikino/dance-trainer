@@ -102,7 +102,8 @@ class SummaryScreen extends StatelessWidget {
   static String _stepName(StepClass c) => switch (c) {
         StepClass.forward => 'forward step',
         StepClass.back => 'back step',
-        StepClass.sideOut => 'side step',
+        StepClass.sideOut => 'side step out',
+        StepClass.sideIn => 'step in (close)',
         StepClass.cross => 'cross step',
         StepClass.kick => 'kick',
         StepClass.inPlace => 'tap in place',

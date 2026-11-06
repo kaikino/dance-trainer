@@ -6,6 +6,7 @@ from .windows import WIN_PRE
 
 RULE_MOVE_MIN = 40.0
 RULE_KICK_MIN = 90.0
+RULE_CROSS_MIN = 270.0
 
 
 def classify(w: np.ndarray) -> tuple[StepClass, int]:
@@ -23,4 +24,6 @@ def classify(w: np.ndarray) -> tuple[StepClass, int]:
         if dx > 0:
             return (StepClass.KICK if mag > RULE_KICK_MIN else StepClass.FORWARD), conf
         return StepClass.BACK, conf
-    return (StepClass.SIDE_OUT if dy > 0 else StepClass.CROSS), conf
+    if dy > 0:
+        return StepClass.SIDE_OUT, conf
+    return (StepClass.CROSS if mag > RULE_CROSS_MIN else StepClass.SIDE_IN), conf
