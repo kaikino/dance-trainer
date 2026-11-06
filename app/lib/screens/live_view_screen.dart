@@ -9,7 +9,7 @@ import '../ble/protocol.dart';
 /// Live check of each node's calibration: one view per foot of a flat,
 /// foot-shaped sole seen from behind and a little to the outside, with its
 /// shadow on the floor. It turns and tilts with the foot, and is pushed off the
-/// centre mark the way the foot is moving, further when faster.
+/// centre the way the foot is moving, further when faster.
 ///
 /// Everything comes from the idle-mode Stream: the orientation quaternion
 /// (calibrated sensor frame → world) and the foot-frame acceleration (+x toe,
@@ -86,7 +86,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                   child: Text(
                     'Stand with your toes pointing forward and tap Set straight ahead. Turn your toe, '
                     'lift it, roll onto an edge: the foot on screen should copy you. Slide or kick: the '
-                    'foot moves off the centre mark the way it is going, further when faster.',
+                    'foot moves off the centre the way it is going, further when faster.',
                   ),
                 ),
                 Expanded(
@@ -105,12 +105,15 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   }
 }
 
-/// One node's latest pose, smoothed.
+/// One node's latest pose, plus a velocity estimate.
 class _FootState {
   _FootState(this.node);
   final NodeClient node;
 
-  final _queue = <StreamSample>[];
+  /// Samples waiting to be shown, each with the velocity integrated up to it.
+  /// Integration happens on arrival so no sample is ever skipped; only the
+  /// display queue is trimmed when it falls behind.
+  final _queue = <(StreamSample, double, double)>[];
   bool _seen = false;
   double _refYaw = 0;
   bool _zeroPending = true;
@@ -128,13 +131,24 @@ class _FootState {
     [0.0, 0.0, 1.0],
   ];
 
-  /// Estimated velocity along the floor, m/s: forward and toward the dancer's left.
-  /// Integrated from acceleration, so it drifts; it leaks back to zero and is
-  /// reset whenever the foot has been still for [_stillSamples] samples.
+  /// Velocity along the floor as drawn, m/s: forward and toward the dancer's
+  /// left. Eased toward the integrated value so resets glide instead of jump.
   double velFwd = 0, velLeft = 0;
-  int _still = 0;
-  static const _dt = 0.02; // idle-mode Stream: 50 Hz
-  static const _stillG = 0.06, _stillSamples = 5, _leakS = 0.6;
+
+  // Integrator state (runs per sample on arrival).
+  double _vF = 0, _vL = 0; // m/s
+  double _biasF = 0, _biasL = 0; // g, learned while still
+  double _stillFor = 0; // s
+  int? _lastUs;
+  (double, double, double, double)? _lastQ;
+
+  /// Still = horizontal and vertical acceleration under [_stillG] and rotation
+  /// under [_stillDps], held for [_stillHoldS]. Only then is velocity zeroed:
+  /// a steady slide also has near-zero acceleration but is not still.
+  static const _stillG = 0.05, _stillDps = 20.0, _stillHoldS = 0.2;
+
+  /// Leftover bias still creeps in, so velocity fades with this time constant.
+  static const _leakS = 1.5;
 
   bool get left => node.role == Role.left;
   bool get seen => _seen;
@@ -146,8 +160,51 @@ class _FootState {
   void add(StreamBatch b) {
     // Capture mode streams the sensor frame instead; nothing here makes sense then.
     if (node.status?.mode == Mode.capture) return;
-    _queue.addAll(b.samples.where((s) => !s.isGyro));
+    final acc = b.samples.where((s) => !s.isGyro).toList();
+    for (var i = 0; i < acc.length; i++) {
+      final s = acc[i];
+      _integrate(s, (b.t0NodeUs + i * 20000) & 0xffffffff);
+      _queue.add((s, _vF, _vL));
+    }
     if (_queue.length > 15) _queue.removeRange(0, _queue.length - 5);
+  }
+
+  void _integrate(StreamSample s, int tUs) {
+    final last = _lastUs;
+    _lastUs = tUs;
+    final q = (s.qw, s.qx, s.qy, s.qz);
+    final lastQ = _lastQ;
+    _lastQ = q;
+    if (last == null || lastQ == null) return;
+    final dt = ((tUs - last) & 0xffffffff) / 1e6;
+    if (dt <= 0 || dt > 0.2) {
+      // Gap in the stream: whatever velocity we had is meaningless now.
+      _vF = _vL = 0;
+      return;
+    }
+
+    // Horizontal acceleration in the world, relative to straight ahead. The
+    // stream's y is outward on both feet; un-mirror it to "toward the left".
+    final m = _matrix(s.qw, s.qx, s.qy, s.qz);
+    final h = atan2(m[1][0], m[0][0]) - _refYaw;
+    final fx = s.ax / 1000, fy = (left ? 1 : -1) * s.ay / 1000, fz = s.az / 1000;
+    final ax = cos(h) * fx - sin(h) * fy, ay = sin(h) * fx + cos(h) * fy;
+
+    // Rotation rate from consecutive orientations.
+    final dot = (q.$1 * lastQ.$1 + q.$2 * lastQ.$2 + q.$3 * lastQ.$3 + q.$4 * lastQ.$4).abs().clamp(0.0, 1.0);
+    final dps = 2 * acos(dot) * 180 / pi / dt;
+
+    final quiet = sqrt(ax * ax + ay * ay) < _stillG && fz.abs() < _stillG && dps < _stillDps;
+    _stillFor = quiet ? _stillFor + dt : 0;
+    if (_stillFor >= _stillHoldS) {
+      _vF = _vL = 0;
+      _biasF += 0.05 * (ax - _biasF);
+      _biasL += 0.05 * (ay - _biasL);
+      return;
+    }
+    final leak = exp(-dt / _leakS);
+    _vF = (_vF + (ax - _biasF) * 9.81 * dt) * leak;
+    _vL = (_vL + (ay - _biasL) * 9.81 * dt) * leak;
   }
 
   void zeroHeading() => _zeroPending = true;
@@ -155,13 +212,15 @@ class _FootState {
   /// Applies the next queued sample. Returns false when there was none.
   bool step() {
     if (_queue.isEmpty) return false;
-    final s = _queue.removeAt(0);
+    final (s, vF, vL) = _queue.removeAt(0);
     final m = _matrix(s.qw, s.qx, s.qy, s.qz);
     // Columns of m: where the toe (+x) and the left side (+y) point in the world.
     final yaw = atan2(m[1][0], m[0][0]);
     if (_zeroPending) {
+      // Velocity so far was relative to the old straight ahead.
       _refYaw = yaw;
       _zeroPending = false;
+      _vF = _vL = 0;
     }
     heading = atan2(sin(yaw - _refYaw), cos(yaw - _refYaw));
     toeUp = asin(m[2][0].clamp(-1.0, 1.0));
@@ -172,24 +231,9 @@ class _FootState {
       [for (var j = 0; j < 3; j++) sn * m[0][j] + c * m[1][j]],
       m[2],
     ];
-
-    // Foot frame → world: the stream's y is outward on both feet, so un-mirror
-    // it to "toward the dancer's left", then turn by the heading.
-    final fx = s.ax / 1000, fy = (left ? 1 : -1) * s.ay / 1000;
-    final wx = cos(heading) * fx - sin(heading) * fy;
-    final wy = sin(heading) * fx + cos(heading) * fy;
-    if (sqrt(wx * wx + wy * wy) < _stillG) {
-      _still++;
-    } else {
-      _still = 0;
-    }
-    if (_still >= _stillSamples) {
-      velFwd = velLeft = 0;
-    } else {
-      final leak = exp(-_dt / _leakS);
-      velFwd = (velFwd + wx * 9.81 * _dt) * leak;
-      velLeft = (velLeft + wy * 9.81 * _dt) * leak;
-    }
+    const ease = 0.35;
+    velFwd += ease * (vF - velFwd);
+    velLeft += ease * (vL - velLeft);
     _seen = true;
     return true;
   }
@@ -273,8 +317,8 @@ class _FootPainter extends CustomPainter {
 
   static const lift = 0.22, thick = 0.07;
 
-  /// Speed that moves the foot all the way to the ring, m/s; the ring's radius
-  /// in foot lengths; speeds below minSpeed draw the foot centred.
+  /// Speed that moves the foot `reach` foot lengths off centre, m/s (it is
+  /// clamped there); speeds below minSpeed draw the foot centred.
   static const fullSpeed = 1.0, reach = 0.3, minSpeed = 0.05;
 
   /// Sole outline, convex: rounded heel, wider at the ball.
@@ -308,7 +352,7 @@ class _FootPainter extends CustomPainter {
     final c = Offset(size.width / 2, size.height * 0.58);
     Offset proj(_V3 p) => c + Offset(_dot(p, r), -_dot(p, u)) * scale;
 
-    // Offset from the centre mark: velocity along the floor, (forward, left).
+    // Offset from the centre: velocity along the floor, (forward, left).
     var ox = foot.velFwd / fullSpeed, oy = foot.velLeft / fullSpeed;
     final od = sqrt(ox * ox + oy * oy);
     if (od * fullSpeed < minSpeed) {
@@ -334,17 +378,23 @@ class _FootPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
 
-    // Floor: the ring the foot moves out to at full speed, and the straight-ahead line.
+    // Floor: a grid fixed in the world (a square every 0.15 foot lengths), so
+    // the foot's turn and its displacement both read against straight lines,
+    // and a bolder straight-ahead line with an arrow.
+    final grid = Paint()
+      ..color = cs.outlineVariant.withValues(alpha: 0.6)
+      ..strokeWidth = 1;
+    const cell = 0.15, gx0 = -0.6, gx1 = 0.75, gy = 0.6;
+    for (var x = gx0; x <= gx1 + 1e-9; x += cell) {
+      canvas.drawLine(proj((x, -gy, 0)), proj((x, gy, 0)), grid);
+    }
+    for (var y = -gy; y <= gy + 1e-9; y += cell) {
+      canvas.drawLine(proj((gx0, y, 0)), proj((gx1, y, 0)), grid);
+    }
+    canvas.drawLine(proj((gx0, 0, 0)), proj((gx1 + 0.05, 0, 0)), guide..strokeWidth = 2);
     canvas.drawPath(
-        Path()
-          ..addPolygon(
-              [for (var a = 0; a <= 360; a += 10) proj((reach * cos(a * pi / 180), reach * sin(a * pi / 180), 0))],
-              true),
-        guide);
-    canvas.drawLine(proj((-0.65, 0, 0)), proj((0.75, 0, 0)), guide);
-    canvas.drawPath(
-        Path()..addPolygon([proj((0.85, 0, 0)), proj((0.75, 0.05, 0)), proj((0.75, -0.05, 0))], true),
-        Paint()..color = cs.outlineVariant);
+        Path()..addPolygon([proj((gx1 + 0.17, 0, 0)), proj((gx1 + 0.05, 0.06, 0)), proj((gx1 + 0.05, -0.06, 0))], true),
+        Paint()..color = cs.outline);
 
     // Shadow: the sole's outline dropped straight down to the floor.
     final shadow = [for (final p in outline) world(p, 0)];
