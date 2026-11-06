@@ -8,8 +8,9 @@ import '../ble/protocol.dart';
 
 /// Live check of each node's calibration: one view per foot of a flat,
 /// foot-shaped sole seen from behind and a little to the outside, with its
-/// shadow on the floor. It turns and tilts with the foot, and is pushed off the
-/// centre the way the foot is moving, further when faster.
+/// shadow on the floor, over a fixed grid. It turns and tilts with the foot,
+/// and a damped spring driven by the measured acceleration pushes it off
+/// centre the way the foot is pushed.
 ///
 /// Everything comes from the idle-mode Stream: the orientation quaternion
 /// (calibrated sensor frame → world) and the foot-frame acceleration (+x toe,
@@ -86,7 +87,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                   child: Text(
                     'Stand with your toes pointing forward and tap Set straight ahead. Turn your toe, '
                     'lift it, roll onto an edge: the foot on screen should copy you. Slide or kick: the '
-                    'foot moves off the centre the way it is going, further when faster.',
+                    'foot is pushed off centre the way you push it, harder pushes further, then settles back.',
                   ),
                 ),
                 Expanded(
@@ -105,12 +106,12 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   }
 }
 
-/// One node's latest pose, plus a velocity estimate.
+/// One node's latest pose, plus the spring push.
 class _FootState {
   _FootState(this.node);
   final NodeClient node;
 
-  /// Samples waiting to be shown, each with the velocity integrated up to it.
+  /// Samples waiting to be shown, each with the spring push up to it.
   /// Integration happens on arrival so no sample is ever skipped; only the
   /// display queue is trimmed when it falls behind.
   final _queue = <(StreamSample, double, double)>[];
@@ -131,24 +132,28 @@ class _FootState {
     [0.0, 0.0, 1.0],
   ];
 
-  /// Velocity along the floor as drawn, m/s: forward and toward the dancer's
-  /// left. Eased toward the integrated value so resets glide instead of jump.
-  double velFwd = 0, velLeft = 0;
+  /// Spring push: how far the foot is drawn off centre, in foot lengths,
+  /// forward and toward the dancer's left. The foot is a mass on a critically
+  /// damped spring driven by the measured floor-plane acceleration, so it
+  /// leans the way it is pushed and settles back without drifting or bouncing.
+  /// No velocity is estimated.
+  double pushFwd = 0, pushLeft = 0;
 
-  // Integrator state (runs per sample on arrival).
-  double _vF = 0, _vL = 0; // m/s
+  // Spring state, stepped per sample on arrival.
+  double _pF = 0, _pL = 0, _dpF = 0, _dpL = 0;
   double _biasF = 0, _biasL = 0; // g, learned while still
   double _stillFor = 0; // s
   int? _lastUs;
   (double, double, double, double)? _lastQ;
 
   /// Still = horizontal and vertical acceleration under [_stillG] and rotation
-  /// under [_stillDps], held for [_stillHoldS]. Only then is velocity zeroed:
-  /// a steady slide also has near-zero acceleration but is not still.
+  /// under [_stillDps], held for [_stillHoldS]. While still the acceleration
+  /// bias (leftover gravity from small tilt errors) is learned and removed.
   static const _stillG = 0.05, _stillDps = 20.0, _stillHoldS = 0.2;
 
-  /// Leftover bias still creeps in, so velocity fades with this time constant.
-  static const _leakS = 1.5;
+  /// Spring natural frequency (rad/s, about 1.5 Hz) and the push for a steady
+  /// 1 g, in foot lengths. Acceleration under [_deadG] is ignored.
+  static const _omega = 2 * pi * 1.5, _perG = 2.5, _deadG = 0.03;
 
   bool get left => node.role == Role.left;
   bool get seen => _seen;
@@ -164,7 +169,7 @@ class _FootState {
     for (var i = 0; i < acc.length; i++) {
       final s = acc[i];
       _integrate(s, (b.t0NodeUs + i * 20000) & 0xffffffff);
-      _queue.add((s, _vF, _vL));
+      _queue.add((s, _pF, _pL));
     }
     if (_queue.length > 15) _queue.removeRange(0, _queue.length - 5);
   }
@@ -178,8 +183,8 @@ class _FootState {
     if (last == null || lastQ == null) return;
     final dt = ((tUs - last) & 0xffffffff) / 1e6;
     if (dt <= 0 || dt > 0.2) {
-      // Gap in the stream: whatever velocity we had is meaningless now.
-      _vF = _vL = 0;
+      // Gap in the stream: start the spring over.
+      _pF = _pL = _dpF = _dpL = 0;
       return;
     }
 
@@ -197,14 +202,25 @@ class _FootState {
     final quiet = sqrt(ax * ax + ay * ay) < _stillG && fz.abs() < _stillG && dps < _stillDps;
     _stillFor = quiet ? _stillFor + dt : 0;
     if (_stillFor >= _stillHoldS) {
-      _vF = _vL = 0;
       _biasF += 0.05 * (ax - _biasF);
       _biasL += 0.05 * (ay - _biasL);
-      return;
     }
-    final leak = exp(-dt / _leakS);
-    _vF = (_vF + (ax - _biasF) * 9.81 * dt) * leak;
-    _vL = (_vL + (ay - _biasL) * 9.81 * dt) * leak;
+    var uF = ax - _biasF, uL = ay - _biasL;
+    final mag = sqrt(uF * uF + uL * uL);
+    if (mag < _deadG) {
+      uF = uL = 0;
+    } else {
+      // Shrink by the dead band so the push starts from zero, not with a jump.
+      final k = (mag - _deadG) / mag;
+      uF *= k;
+      uL *= k;
+    }
+    // p'' = K·a − ω²·p − 2ω·p' (critically damped), semi-implicit Euler.
+    const w = _omega, k = _perG * _omega * _omega;
+    _dpF += (k * uF - w * w * _pF - 2 * w * _dpF) * dt;
+    _dpL += (k * uL - w * w * _pL - 2 * w * _dpL) * dt;
+    _pF += _dpF * dt;
+    _pL += _dpL * dt;
   }
 
   void zeroHeading() => _zeroPending = true;
@@ -212,15 +228,15 @@ class _FootState {
   /// Applies the next queued sample. Returns false when there was none.
   bool step() {
     if (_queue.isEmpty) return false;
-    final (s, vF, vL) = _queue.removeAt(0);
+    final (s, pF, pL) = _queue.removeAt(0);
     final m = _matrix(s.qw, s.qx, s.qy, s.qz);
     // Columns of m: where the toe (+x) and the left side (+y) point in the world.
     final yaw = atan2(m[1][0], m[0][0]);
     if (_zeroPending) {
-      // Velocity so far was relative to the old straight ahead.
+      // The push so far was relative to the old straight ahead.
       _refYaw = yaw;
       _zeroPending = false;
-      _vF = _vL = 0;
+      _pF = _pL = _dpF = _dpL = 0;
     }
     heading = atan2(sin(yaw - _refYaw), cos(yaw - _refYaw));
     toeUp = asin(m[2][0].clamp(-1.0, 1.0));
@@ -231,9 +247,8 @@ class _FootState {
       [for (var j = 0; j < 3; j++) sn * m[0][j] + c * m[1][j]],
       m[2],
     ];
-    const ease = 0.35;
-    velFwd += ease * (vF - velFwd);
-    velLeft += ease * (vL - velLeft);
+    pushFwd = pF;
+    pushLeft = pL;
     _seen = true;
     return true;
   }
@@ -272,8 +287,6 @@ class _FootPanel extends StatelessWidget {
       if (_angle(foot.toeUp, 'up', 'down') case final s?) 'toe $s',
       if (_angle(foot.outerEdgeUp, 'up', 'down') case final s?) 'outer edge $s',
     ];
-    final speed = sqrt(foot.velFwd * foot.velFwd + foot.velLeft * foot.velLeft);
-    if (speed >= _FootPainter.minSpeed) parts.add('moving ${speed.toStringAsFixed(1)} m/s');
     final caption = !foot.seen
         ? 'Waiting for data…'
         : parts.isEmpty
@@ -317,9 +330,9 @@ class _FootPainter extends CustomPainter {
 
   static const lift = 0.22, thick = 0.07;
 
-  /// Speed that moves the foot `reach` foot lengths off centre, m/s (it is
-  /// clamped there); speeds below minSpeed draw the foot centred.
-  static const fullSpeed = 1.0, reach = 0.3, minSpeed = 0.05;
+  /// Furthest the push can draw the foot off centre, foot lengths. Larger
+  /// pushes are squeezed softly toward it rather than cut off.
+  static const reach = 0.4;
 
   /// Sole outline, convex: rounded heel, wider at the ball.
   static final List<(double, double)> outline = () {
@@ -352,16 +365,10 @@ class _FootPainter extends CustomPainter {
     final c = Offset(size.width / 2, size.height * 0.58);
     Offset proj(_V3 p) => c + Offset(_dot(p, r), -_dot(p, u)) * scale;
 
-    // Offset from the centre: velocity along the floor, (forward, left).
-    var ox = foot.velFwd / fullSpeed, oy = foot.velLeft / fullSpeed;
-    final od = sqrt(ox * ox + oy * oy);
-    if (od * fullSpeed < minSpeed) {
-      ox = oy = 0;
-    } else if (od > 1) {
-      ox /= od;
-      oy /= od;
-    }
-    final offset = (ox * reach, oy * reach);
+    // Offset from the centre: the spring push, (forward, left).
+    final pd = sqrt(foot.pushFwd * foot.pushFwd + foot.pushLeft * foot.pushLeft);
+    final squeeze = pd < 1e-6 ? 0.0 : reach * _tanh(pd / reach) / pd;
+    final offset = (foot.pushFwd * squeeze, foot.pushLeft * squeeze);
 
     _V3 world((double, double) p, double z) {
       final v = (p.$1, p.$2, z);
@@ -446,6 +453,11 @@ class _FootPainter extends CustomPainter {
           ..strokeJoin = StrokeJoin.round,
       );
     }
+  }
+
+  static double _tanh(double x) {
+    final e = exp(-2 * x);
+    return (1 - e) / (1 + e);
   }
 
   static double _dot(_V3 a, _V3 b) => a.$1 * b.$1 + a.$2 * b.$2 + a.$3 * b.$3;
