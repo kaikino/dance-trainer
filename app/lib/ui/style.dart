@@ -20,7 +20,43 @@ String stepLabel(StepClass c) => switch (c) {
       StepClass.none => 'no step',
     };
 
+/// One plain sentence per step, for the step legend.
+String stepHelp(StepClass c) => switch (c) {
+      StepClass.forward => 'Step this foot forward.',
+      StepClass.back => 'Step this foot backward.',
+      StepClass.sideOut => 'Step outwards to the side.',
+      StepClass.sideIn => 'Bring this foot in beside the other one, without crossing.',
+      StepClass.cross => 'Step this foot across the other foot.',
+      StepClass.kick => 'Swing the foot forward off the floor.',
+      StepClass.inPlace => 'Touch the floor where you stand, no travel.',
+      StepClass.none => '',
+    };
+
+/// "Left" or "Right"; lower-case it in the middle of a sentence.
 String footName(Role r) => r == Role.left ? 'Left' : 'Right';
+
+/// Where a node's calibration stands, from its Status. One rule everywhere:
+/// no status yet, or old firmware that does not report it, is [unknown] and
+/// is not treated as needing calibration.
+enum CalState { unknown, calibrated, boardMoved, tiltOnly, notCalibrated }
+
+CalState calStateOf(Status? st) => switch (st) {
+      null || Status(calFlags: null) => CalState.unknown,
+      Status(boardMoved: true) => CalState.boardMoved,
+      Status(knowsForward: true) => CalState.calibrated,
+      Status(calibrated: true) => CalState.tiltOnly,
+      _ => CalState.notCalibrated,
+    };
+
+extension CalStateX on CalState {
+  /// Directions would be judged wrong until the node is calibrated (again).
+  bool get needsCalibration =>
+      this == CalState.boardMoved || this == CalState.tiltOnly || this == CalState.notCalibrated;
+}
+
+/// The stance calibration measures, and the step classifier assumes.
+const stanceInstruction = 'Stand with your feet parallel and under your hips, about one foot-width apart, '
+    'weight on both feet. Keep still until you feel a buzz.';
 
 /// Arrow for a step, as the dancer sees the chart (left lane = left foot).
 /// Side steps point outward and closes point inward; a cross goes inward past
@@ -293,10 +329,13 @@ class ScoreRing extends StatelessWidget {
 /// A routine's first bars as two rows of small step icons (L over R), one
 /// column per beat, so routines can be told apart at a glance.
 class StepPatternPreview extends StatelessWidget {
-  const StepPatternPreview({super.key, required this.preset, this.beats = 8, this.color});
+  const StepPatternPreview({super.key, required this.preset, this.beats = 8, this.color, this.footLabels = true});
   final Preset preset;
   final int beats;
   final Color? color;
+
+  /// An "L" and "R" in front of the rows.
+  final bool footLabels;
 
   @override
   Widget build(BuildContext context) {
@@ -322,11 +361,24 @@ class StepPatternPreview extends StatelessWidget {
       );
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (final foot in Role.values) Row(children: [for (var b = 1; b <= beats; b++) cell(foot, b)]),
-      ],
+    final labelStyle = Theme.of(context).textTheme.labelLarge?.copyWith(
+        fontWeight: FontWeight.w800, color: scheme.onSurfaceVariant, height: 1);
+    return Semantics(
+      label: 'First ${beats ~/ 4} bars, left foot over right foot',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final foot in Role.values)
+            Row(children: [
+              if (footLabels)
+                SizedBox(
+                  width: 18,
+                  child: Text(foot == Role.left ? 'L' : 'R', style: labelStyle, textAlign: TextAlign.center),
+                ),
+              for (var b = 1; b <= beats; b++) cell(foot, b),
+            ]),
+        ],
+      ),
     );
   }
 }

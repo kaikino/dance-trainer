@@ -8,6 +8,17 @@ flutter analyze && flutter test
 flutter run            # on a real phone; BLE does not work in simulators
 ```
 
+## Release build
+
+```
+flutter build apk --release --split-per-abi
+```
+
+This writes one APK per CPU type to `build/app/outputs/flutter-apk/`
+(`app-arm64-v8a-release.apk` is the one for any recent tablet or phone),
+each a fraction of the size of a fat APK. Add `--dart-define=FAKE_NODES=true`
+for a demo build with simulated nodes.
+
 Platform folders are committed. BLE permissions are already in
 `ios/Runner/Info.plist` and `android/app/src/main/AndroidManifest.xml`.
 

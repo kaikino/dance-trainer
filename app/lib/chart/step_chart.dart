@@ -19,8 +19,13 @@ class StepChartController extends ChangeNotifier {
   /// Current beat, 1-based and fractional.
   double nowBeat = 0;
 
-  /// Verdict per step index into [Preset.steps], once one arrives.
+  /// Verdict per step index into [Preset.steps], once one arrives. The
+  /// session's own map, read only here (not copied per event).
   Map<int, Verdict> verdicts = const {};
+
+  /// Position in [Preset.beatOrder] of the first step not yet behind the now
+  /// line, so finding the next step does not walk the whole routine each frame.
+  int _cursor = 0;
 
   final _clock = Stopwatch()..start();
   final _hits = <_Hit>[];
@@ -40,18 +45,29 @@ class StepChartController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// [v] is kept by reference: the caller changes it and calls this again.
   void setVerdicts(Map<int, Verdict> v) {
-    verdicts = Map.unmodifiable(v);
+    verdicts = v;
     _updateSpoken();
     notifyListeners();
   }
 
+  /// Steps still pending at the now line, in beat order (a quarter beat of grace).
+  bool _pending(PresetStep s) => s.beat - nowBeat > -0.25;
+
   void _updateSpoken() {
     final steps = preset.steps;
+    final order = preset.beatOrder;
+    // Time runs forward except on a rewind: then start the cursor over.
+    if (_cursor > 0 && _cursor <= order.length && _pending(steps[order[_cursor - 1]])) _cursor = 0;
+    while (_cursor < order.length && !_pending(steps[order[_cursor]])) {
+      _cursor++;
+    }
     String? next;
-    for (var i = 0; i < steps.length; i++) {
+    for (var k = _cursor; k < order.length; k++) {
+      final i = order[k];
       final s = steps[i];
-      if (s.stepClass == StepClass.none || s.beat - nowBeat <= -0.25 || verdicts[i] != null) continue;
+      if (s.stepClass == StepClass.none || verdicts[i] != null) continue;
       next = 'Next: ${footName(s.foot).toLowerCase()} foot ${stepLabel(s.stepClass)}, bar ${barOf(s.beat)}';
       break;
     }
@@ -63,6 +79,17 @@ class StepChartController extends ChangeNotifier {
   void dispose() {
     spoken.dispose();
     super.dispose();
+  }
+
+  /// Hits still washing or popping: the chart needs frames until they fade.
+  bool get animating => _hits.isNotEmpty;
+
+  /// Watch-first mode: pop the step's name at the now line in the theme colour,
+  /// with no verdict.
+  void cue(Role foot, String label) {
+    _hits.removeWhere((h) => h.foot == foot);
+    _hits.add(_Hit(foot, null, label, _clock.elapsedMilliseconds));
+    notifyListeners();
   }
 
   /// Flash [foot]'s lane in the verdict colour and pop a label at the now line.
@@ -86,7 +113,9 @@ class StepChartController extends ChangeNotifier {
 class _Hit {
   _Hit(this.foot, this.verdict, this.label, this.atMs);
   final Role foot;
-  final Verdict verdict;
+
+  /// Null for a watch-first cue.
+  final Verdict? verdict;
   final String? label;
   final int atMs;
 }
@@ -104,6 +133,10 @@ class StepChart extends StatelessWidget {
   final StepChartController controller;
   final double beatsVisibleAhead;
   final double beatsVisibleBehind;
+
+  /// Lane header height for a chart of [size]; it scales with the chart so it
+  /// reads from across a room. Overlays dock just under it.
+  static double headerHeight(Size size) => (size.shortestSide * 0.08).clamp(40.0, 68.0);
 
   @override
   Widget build(BuildContext context) {
@@ -141,9 +174,6 @@ class _StepChartPainter extends CustomPainter {
 
   static const _gap = 10.0;
 
-  /// Lane header height; it scales with the chart so it reads from across a room.
-  static double _headerH(Size size) => (size.shortestSide * 0.08).clamp(40.0, 68.0);
-
   ColorScheme get _scheme => theme.colorScheme;
 
   @override
@@ -151,7 +181,7 @@ class _StepChartPainter extends CustomPainter {
     final scheme = _scheme;
     final laneW = (size.width - _gap) / 2;
     double laneX(Role f) => f == Role.left ? 0 : laneW + _gap;
-    final headerH = _headerH(size);
+    final headerH = StepChart.headerHeight(size);
     final bodyH = size.height - headerH;
     final pxPerBeat = bodyH / (ahead + behind);
     final nowY = size.height - behind * pxPerBeat;
@@ -188,7 +218,7 @@ class _StepChartPainter extends CustomPainter {
       if (age > StepChartController.washMs) continue;
       final rect = lanes[h.foot.index].$2;
       canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(20)),
-          Paint()..color = h.verdict.fill.withValues(alpha: 0.28 * (1 - age / StepChartController.washMs)));
+          Paint()..color = _hitColor(h).withValues(alpha: 0.28 * (1 - age / StepChartController.washMs)));
     }
 
     // Steps scroll under the header: clip them to the body.
@@ -278,31 +308,32 @@ class _StepChartPainter extends CustomPainter {
       canvas.save();
       canvas.translate(centre.dx, centre.dy);
       canvas.scale(scale);
-      final Size pill;
-      final TextPainter? tp = h.label == null ? null : _text(h.label!, popSize, Colors.white, FontWeight.w800);
-      pill = tp == null
+      // A cue sits on the theme's primary (light in dark mode): its own on-colour.
+      final tp = h.label == null
+          ? null
+          : _text(h.label!, popSize, h.verdict == null ? _scheme.onPrimary : Colors.white, FontWeight.w800);
+      final pill = tp == null
           ? Size(popSize * 1.9, popSize * 1.5)
           : Size(tp.width + popSize * 1.1, tp.height + popSize * 0.35);
       final pillRect = Rect.fromCenter(center: Offset.zero, width: pill.width, height: pill.height);
+      // The fade is one layer alpha, so the cached text painters keep one colour.
+      if (alpha < 1) canvas.saveLayer(pillRect.inflate(16), Paint()..color = Color.fromRGBO(0, 0, 0, alpha));
       canvas.drawRRect(
           RRect.fromRectAndRadius(pillRect.shift(const Offset(0, 4)), Radius.circular(pill.height / 2)),
           Paint()
-            ..color = Colors.black.withValues(alpha: 0.18 * alpha)
+            ..color = Colors.black.withValues(alpha: 0.18)
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
       // A white rim sets the pill apart from the same-coloured step under it.
       canvas.drawRRect(RRect.fromRectAndRadius(pillRect.inflate(4), Radius.circular(pill.height / 2 + 4)),
-          Paint()..color = Colors.white.withValues(alpha: alpha));
+          Paint()..color = Colors.white);
       canvas.drawRRect(RRect.fromRectAndRadius(pillRect, Radius.circular(pill.height / 2)),
-          Paint()..color = h.verdict.fill.withValues(alpha: alpha));
+          Paint()..color = _hitColor(h));
       if (tp == null) {
-        _icon(canvas, Icons.check_rounded, Offset.zero, popSize * 1.3, Colors.white.withValues(alpha: alpha));
+        _icon(canvas, Icons.check_rounded, Offset.zero, popSize * 1.3, Colors.white);
       } else {
-        if (alpha < 1) {
-          tp.text = TextSpan(text: h.label, style: tp.text!.style!.copyWith(color: Colors.white.withValues(alpha: alpha)));
-          tp.layout();
-        }
         tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
       }
+      if (alpha < 1) canvas.restore();
       canvas.restore();
     }
 
@@ -318,7 +349,33 @@ class _StepChartPainter extends CustomPainter {
     canvas.restore();
   }
 
+  Color _hitColor(_Hit h) => h.verdict?.fill ?? _scheme.primary;
+
+  /// Laid-out text painters by what they draw: the same captions, labels and
+  /// icons come back every frame. Cleared (and disposed) when it grows past
+  /// [_cacheMax], e.g. after a resize changed every size.
+  static final _cache = <(String, double, int, int, int?, double, String?, String?), TextPainter>{};
+  static const _cacheMax = 160;
+
+  static TextPainter _cached(
+      (String, double, int, int, int?, double, String?, String?) key, TextPainter Function() make) {
+    final hit = _cache[key];
+    if (hit != null) return hit;
+    if (_cache.length >= _cacheMax) {
+      for (final tp in _cache.values) {
+        tp.dispose();
+      }
+      _cache.clear();
+    }
+    return _cache[key] = make();
+  }
+
   static TextPainter _text(String s, double size, Color color, FontWeight weight,
+          {Color? outline, double letterSpacing = 0}) =>
+      _cached((s, size, color.toARGB32(), weight.value, outline?.toARGB32(), letterSpacing, null, null),
+          () => _layoutText(s, size, color, weight, outline: outline, letterSpacing: letterSpacing));
+
+  static TextPainter _layoutText(String s, double size, Color color, FontWeight weight,
       {Color? outline, double letterSpacing = 0}) {
     final style = TextStyle(fontSize: size, fontWeight: weight, color: color, letterSpacing: letterSpacing, height: 1.1);
     return TextPainter(
@@ -337,13 +394,16 @@ class _StepChartPainter extends CustomPainter {
   }
 
   static void _icon(Canvas canvas, IconData icon, Offset centre, double size, Color color) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: String.fromCharCode(icon.codePoint),
-        style: TextStyle(color: color, fontSize: size, fontFamily: icon.fontFamily, package: icon.fontPackage),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
+    final glyph = String.fromCharCode(icon.codePoint);
+    final tp = _cached(
+        (glyph, size, color.toARGB32(), 0, null, 0, icon.fontFamily, icon.fontPackage),
+        () => TextPainter(
+              text: TextSpan(
+                text: glyph,
+                style: TextStyle(color: color, fontSize: size, fontFamily: icon.fontFamily, package: icon.fontPackage),
+              ),
+              textDirection: TextDirection.ltr,
+            )..layout());
     tp.paint(canvas, centre - Offset(tp.width / 2, tp.height / 2));
   }
 

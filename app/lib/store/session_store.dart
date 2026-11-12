@@ -166,19 +166,10 @@ class SessionRecorder {
     final seg = segments.lastOrNull;
     if (mode == Mode.capture && seg != null && tAppMs != null) {
       // Label from the schedule: nearest scheduled beat for this foot within 250 ms.
-      final msAfter = tAppMs - seg.t0AppMs;
       final beatMs = 60000 / seg.bpm;
-      PresetStep? best;
-      var bestErr = double.infinity;
-      for (final s in preset.steps.where((s) => s.foot == role)) {
-        final err = ((s.beat - 1) * beatMs - msAfter).abs();
-        if (err < bestErr) {
-          bestErr = err;
-          best = s;
-        }
-      }
-      if (best != null && bestErr <= 250) {
-        label = best.stepClass.index;
+      final i = preset.nearestStep(role, 1 + (tAppMs - seg.t0AppMs) / beatMs, within: 250 / beatMs);
+      if (i != null) {
+        label = preset.steps[i].stepClass.index;
         source = 'capture';
       }
     }
@@ -186,7 +177,9 @@ class SessionRecorder {
   }
 
   /// Writes events.csv and session.json. Safe to call twice; a no-op before [begin].
-  Future<void> end({String appVersion = '0.1.0'}) async {
+  /// [score] (a scored session's summary, see SessionSummary) is written
+  /// under "score" for the History screen; capture sessions have none.
+  Future<void> end({String appVersion = '0.1.0', Map<String, Object?>? score}) async {
     if (!_begun || _ended) return;
     _ended = true;
     for (final s in _subs) {
@@ -231,6 +224,7 @@ class SessionRecorder {
       'clock_syncs': _syncs,
       'app_version': appVersion,
       'protocol_version': protocolVersion,
+      if (score != null) 'score': score,
     };
     await File('${dir.path}/session.json').writeAsString(const JsonEncoder.withIndent('  ').convert(meta));
     debugPrint('session saved: ${dir.path} (${events.length} events)');

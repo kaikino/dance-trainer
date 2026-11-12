@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
 
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
+import '../ui/foot_shape.dart';
 import '../ui/style.dart';
 
 /// Live check of each node's calibration: one view per foot of a flat,
@@ -37,10 +37,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   @override
   void initState() {
     super.initState();
-    for (final n in widget.manager.nodes.where((n) => n.connected)) {
-      final f = _feet[n.role] = _FootState(n);
-      _subs.add(n.batches.listen(f.add));
-    }
+    _addFeet();
     widget.manager.addListener(_onChange);
     // Play the samples out at their own rate instead of jumping 5 at a time.
     _frame = Timer.periodic(Duration(microseconds: StreamBatch.sampleUs(Mode.idle).round()), (_) {
@@ -54,16 +51,30 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     _updateSpoken();
   }
 
-  void _updateSpoken() {
-    final next = {for (final f in _feet.values) f.node.role: _FootPanel.caption(f)};
-    if (mounted && !mapEquals(next, _spoken)) {
-      setState(() => _spoken
-        ..clear()
-        ..addAll(next));
+  /// A view for every connected node not shown yet: one that connects (or
+  /// reconnects) after the screen opened gets its foot too.
+  void _addFeet() {
+    for (final n in widget.manager.nodes.where((n) => n.connected)) {
+      if (_feet.containsKey(n.role)) continue;
+      final f = _feet[n.role] = _FootState(n);
+      _subs.add(n.batches.listen(f.add));
     }
   }
 
+  void _updateSpoken() {
+    var changed = false;
+    for (final f in _feet.values) {
+      final caption = _FootPanel.caption(f);
+      if (_spoken[f.node.role] != caption) {
+        _spoken[f.node.role] = caption;
+        changed = true;
+      }
+    }
+    if (changed && mounted) setState(() {});
+  }
+
   void _onChange() {
+    _addFeet();
     if (mounted) setState(() {});
   }
 
@@ -315,16 +326,17 @@ class _FootPanel extends StatelessWidget {
     final st = foot.node.status;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final (badge, color) = switch (st) {
-      _ when !foot.node.connected => ('Disconnected', scheme.error),
-      null || Status(calFlags: null) => ('Calibration unknown (old firmware)', scheme.onSurfaceVariant),
-      Status(boardMoved: true) => ('Board moved on the strap? Calibrate again', warnColor(context)),
-      Status(knowsForward: true) => ('Calibrated', okColor(context)),
-      Status(calibrated: true) => ('Tilt only: toe direction unknown, calibrate again', warnColor(context)),
-      _ => ('Not calibrated: directions follow the board, not the foot', scheme.error),
-    };
+    final (badge, color) = foot.node.connected
+        ? switch (calStateOf(st)) {
+            CalState.unknown => ('Calibration unknown (old firmware)', scheme.onSurfaceVariant),
+            CalState.boardMoved => ('Board moved on the strap? Calibrate again', warnColor(context)),
+            CalState.calibrated => ('Calibrated', okColor(context)),
+            CalState.tiltOnly => ('Tilt only: toe direction unknown, calibrate again', warnColor(context)),
+            CalState.notCalibrated => ('Not calibrated: directions follow the board, not the foot', scheme.error),
+          }
+        : ('Disconnected', scheme.error);
     final captionStyle = theme.textTheme.titleMedium?.copyWith(height: 1.4);
-    final name = foot.left ? 'Left ankle' : 'Right ankle';
+    final name = '${footName(foot.node.role)} ankle';
     return Semantics(
       container: true,
       label: '$name. $badge. $spoken',
@@ -373,8 +385,10 @@ typedef _V3 = (double, double, double);
 
 /// The foot as a flat sole (+x toe, +y the dancer's left, +z up; length 1),
 /// rotated by the foot's pose and lifted above the floor so it can tilt, with
-/// its shadow flat on the floor. Orthographic camera behind the dancer, raised
-/// and a little to the outside of this foot.
+/// its shadow flat on the floor. The sole is a real foot's shape (arch on the
+/// inner side, mirrored per foot) with a coloured toe cap. Orthographic camera
+/// behind the dancer, high (55°) so a turned-out toe is not exaggerated, and a
+/// little to the outside of this foot.
 class _FootPainter extends CustomPainter {
   _FootPainter(this.foot, this.theme);
   final _FootState foot;
@@ -386,35 +400,26 @@ class _FootPainter extends CustomPainter {
   /// pushes are squeezed softly toward it rather than cut off.
   static const reach = 0.4;
 
-  /// Sole outline, convex: rounded heel, wider at the ball.
-  static final List<(double, double)> outline = () {
-    double halfWidth(double x) {
-      final u = 2 * x; // −1 heel … +1 toe
-      return (0.13 + 0.05 * (u + 1) / 2) * sqrt(max(0.0, 1 - u * u));
-    }
+  /// Sole outlines per foot; the inner side has the arch.
+  static final _left = soleOutline(left: true), _right = soleOutline(left: false);
 
-    // Denser near heel and toe so the ends come out round.
-    const n = 32;
-    final xs = [for (var i = 0; i <= n; i++) -0.5 * cos(pi * i / n)];
-    return [
-      for (final x in xs) (x, halfWidth(x)),
-      for (final x in xs.reversed.skip(1).take(n - 1)) (x, -halfWidth(x)),
-    ];
-  }();
+  /// The toe cap starts this far toward the toe.
+  static const capFrom = 0.3;
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.clipRect(Offset.zero & size);
     final m = foot.pose;
+    final outline = foot.left ? _left : _right;
     final outside = foot.left ? 1.0 : -1.0; // +y is outside on the left foot
     // d = viewing direction; r = screen right; u = screen up.
-    const el = 30 * pi / 180;
+    const el = 55 * pi / 180;
     final az = -outside * 15 * pi / 180;
     final d = (cos(el) * cos(az), cos(el) * sin(az), -sin(el));
     final r = (sin(az), -cos(az), 0.0);
     final u = _cross(r, d);
-    final scale = min(size.width * 0.5, size.height * 0.75);
-    final c = Offset(size.width / 2, size.height * 0.58);
+    final scale = min(size.width * 0.55, size.height * 0.8);
+    final c = Offset(size.width / 2, size.height * 0.55);
     Offset proj(_V3 p) => c + Offset(_dot(p, r), -_dot(p, u)) * scale;
 
     // Offset from the centre: the spring push, (forward, left).
@@ -470,16 +475,19 @@ class _FootPainter extends CustomPainter {
         );
     bool facing(_V3 n) => _dot(n, d) < 0;
     final side = Paint()..color = Color.lerp(cs.primary, Colors.black, 0.35)!;
+    // Winding of the outline, so each edge's outward normal is known even in
+    // the arch (the outline is not convex there).
+    var area2 = 0.0;
+    for (var i = 0; i < outline.length; i++) {
+      final a = outline[i], b = outline[(i + 1) % outline.length];
+      area2 += a.$1 * b.$2 - b.$1 * a.$2;
+    }
+    final wind = area2 > 0 ? 1.0 : -1.0; // + counter-clockwise
     for (var i = 0; i < outline.length; i++) {
       final j = (i + 1) % outline.length;
       final a = outline[i], b = outline[j];
-      final mx = (a.$1 + b.$1) / 2, my = (a.$2 + b.$2) / 2;
-      // Outward normal: perpendicular to the edge, away from the middle.
-      var nx = b.$2 - a.$2, ny = a.$1 - b.$1;
-      if (nx * mx + ny * my < 0) {
-        nx = -nx;
-        ny = -ny;
-      }
+      // Outward normal: the edge turned a quarter away from the inside.
+      final nx = wind * (b.$2 - a.$2), ny = wind * (a.$1 - b.$1);
       if (!facing(normal((nx, ny, 0)))) continue;
       canvas.drawPath(Path()..addPolygon([proj(top[i]), proj(top[j]), proj(bottom[j]), proj(bottom[i])], true), side);
     }
@@ -488,10 +496,13 @@ class _FootPainter extends CustomPainter {
     canvas.drawPath(Path()..addPolygon([for (final p in face) proj(p)], true),
         Paint()..color = topUp ? cs.primary : Color.lerp(cs.primary, Colors.black, 0.5)!);
 
-    // Toe chevron on the top so the direction reads at a glance.
+    // Toe cap on the top, and a chevron, so the direction reads at a glance.
     if (topUp) {
+      canvas.drawPath(
+          Path()..addPolygon([for (var i = 0; i < outline.length; i++) if (outline[i].$1 >= capFrom) proj(top[i])], true),
+          Paint()..color = cs.tertiary);
       Offset at(double x, double y) => proj(world((x, y), thick / 2));
-      final a = at(0.18, 0.09), b = at(0.34, 0), e = at(0.18, -0.09);
+      final a = at(0.04, 0.08), b = at(0.19, 0), e = at(0.04, -0.08);
       canvas.drawPath(
         Path()
           ..moveTo(a.dx, a.dy)

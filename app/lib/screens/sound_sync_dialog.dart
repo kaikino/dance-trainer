@@ -34,7 +34,8 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
   int _manual = AppSettings.audioDelayMs;
   Timer? _tick;
 
-  double get _beatMs => 60000 / _bpm;
+  double get _beatMs => _clock.preset.beatMs;
+  bool _disposed = false;
 
   Future<void> _start() async {
     _offsets.clear();
@@ -42,8 +43,20 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
       _running = true;
       _result = null;
     });
-    await _clock.prepare();
+    // Cancel may close the dialog while the click track loads: stop there,
+    // before touching the disposed clock or starting a timer.
+    try {
+      await _clock.prepare();
+    } catch (_) {
+      if (_disposed || !_running) return; // the player was torn down under the load
+      rethrow;
+    }
+    if (_disposed || !_running) return;
     await _clock.start();
+    if (_disposed || !_running) {
+      if (!_disposed) await _clock.stop();
+      return;
+    }
     _tick?.cancel();
     _tick = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (_running && _clock.finished) _finish();
@@ -63,7 +76,8 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
 
   Future<void> _finish() async {
     _tick?.cancel();
-    await _clock.stop();
+    _running = false;
+    if (!_disposed) await _clock.stop();
     if (!mounted) return;
     setState(() {
       _running = false;
@@ -84,6 +98,8 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
 
   @override
   void dispose() {
+    _disposed = true;
+    _running = false;
     _tick?.cancel();
     _clock.dispose();
     super.dispose();
@@ -157,7 +173,11 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
       actions: [
         TextButton(
           onPressed: () async {
-            if (_running) await _finish();
+            if (_running) {
+              _running = false;
+              _tick?.cancel();
+              await _clock.stop();
+            }
             if (context.mounted) Navigator.pop(context);
           },
           child: const Text('Cancel'),

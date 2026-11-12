@@ -5,6 +5,7 @@ import '../ble/node_client.dart';
 import '../ble/protocol.dart';
 import '../models/preset.dart';
 import '../models/session_score.dart';
+import '../store/history.dart';
 import '../store/session_store.dart';
 import '../ui/style.dart';
 import 'dance_screen.dart';
@@ -14,7 +15,7 @@ import 'preset_screen.dart';
 /// Practice), timing, mistakes by type and by foot and step, a drill button
 /// for the worst one, and an export button that shares the session files.
 /// Two columns in landscape (stats | mistakes); actions pinned at the bottom.
-class SummaryScreen extends StatelessWidget {
+class SummaryScreen extends StatefulWidget {
   const SummaryScreen({
     super.key,
     required this.manager,
@@ -31,6 +32,64 @@ class SummaryScreen extends StatelessWidget {
   final String dancer;
   final SessionRecorder recorder;
   final SessionScore score;
+
+  @override
+  State<SummaryScreen> createState() => _SummaryScreenState();
+}
+
+/// The headline over the score: a tier for how it went and how it compares
+/// with the last full run of the same routine and mode.
+String summaryHeadline(double? score, {double? previous, bool complete = true}) {
+  if (score == null) return 'No steps were judged';
+  if (!complete) return 'Ended early';
+  final tier = switch (score) {
+    >= 0.95 => 'Superb!',
+    >= 0.85 => 'Great job!',
+    >= 0.7 => 'Nice!',
+    >= 0.5 => 'Good effort!',
+    _ => 'Keep at it!',
+  };
+  if (previous == null) return tier;
+  final now = (score * 100).round(), before = (previous * 100).round();
+  if (now > before) return '$tier Up from $before%';
+  if (now == before) return '$tier Same as last time';
+  return '$tier Last time $before%';
+}
+
+/// Mean timing error in plain words (+ = late).
+String timingAdvice(double? meanMs) => switch (meanMs?.roundToDouble()) {
+      null => 'No timed steps',
+      final e when e.abs() <= 40 => 'Right on the beat',
+      final e when e > 120 => 'Behind the beat — step earlier',
+      final e when e > 0 => 'Slightly behind the beat — try stepping a touch earlier',
+      final e when e < -120 => 'Ahead of the beat — wait for it',
+      _ => 'Slightly ahead of the beat — try waiting a touch longer',
+    };
+
+class _SummaryScreenState extends State<SummaryScreen> {
+  HistoryEntry? _self, _previous;
+
+  NodeManager get manager => widget.manager;
+  Preset get preset => widget.preset;
+  SessionKind get kind => widget.kind;
+  String get dancer => widget.dancer;
+  SessionRecorder get recorder => widget.recorder;
+  SessionScore get score => widget.score;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kind != SessionKind.capture) _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    final all = await SessionHistory.load(presetId: preset.id);
+    if (!mounted) return;
+    setState(() {
+      _self = all.where((e) => e.sessionId == recorder.sessionId).firstOrNull;
+      _previous = SessionHistory.previous(all, presetId: preset.id, kind: kind, sessionId: recorder.sessionId);
+    });
+  }
 
   void _dance(BuildContext context, SessionKind kind, {double fromBeat = 1}) => Navigator.pushReplacement(
         context,
@@ -131,6 +190,10 @@ class SummaryScreen extends StatelessWidget {
     final first = score.firstTryAccuracy;
     final meanErr = score.meanTimingMs;
     final hardest = score.hardestBar;
+    final headline = practice ? first : acc;
+    final complete = _self?.complete ?? true;
+    final prev = complete ? _previous?.headline : null;
+    final delta = headline == null || prev == null ? null : (headline * 100).round() - (prev * 100).round();
     final ring = ScoreRing(
       value: practice ? first : acc,
       caption: practice ? 'right first time' : 'correct',
@@ -141,12 +204,7 @@ class SummaryScreen extends StatelessWidget {
       _Fact(
           Icons.timer_outlined,
           meanErr == null ? '–' : '${meanErr.round() > 0 ? '+' : ''}${meanErr.round()} ms',
-          switch (meanErr?.round()) {
-            null => 'timing',
-            0 => 'on the beat on average',
-            > 0 => 'late on average',
-            _ => 'early on average',
-          }),
+          timingAdvice(meanErr)),
       if (practice) ...[
         _Fact(Icons.verified_rounded, acc == null ? '–' : '${(acc * 100).round()}%', 'after retries'),
         _Fact(Icons.replay_rounded, '${score.rewinds}', score.rewinds == 1 ? 'rewind' : 'rewinds'),
@@ -154,6 +212,31 @@ class SummaryScreen extends StatelessWidget {
     ];
     return [
       const SectionHeader('Score'),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(summaryHeadline(headline, previous: prev, complete: complete),
+                style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+            if (delta != null)
+              StatusPill(
+                icon: delta > 0
+                    ? Icons.trending_up_rounded
+                    : delta < 0
+                        ? Icons.trending_down_rounded
+                        : Icons.trending_flat_rounded,
+                text: '${delta > 0 ? '+' : ''}$delta% vs last time',
+                color: delta > 0 ? okColor(context) : null,
+              ),
+            if (!complete)
+              Text('Dance to the end for it to count towards your best.',
+                  style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          ],
+        ),
+      ),
       Card(
         child: Padding(
           padding: const EdgeInsets.all(20),
@@ -412,6 +495,14 @@ class _MistakeRow extends StatelessWidget {
           children: [
             for (final v in scoredVerdicts)
               if (group.byVerdict[v] case final n?) StatusPill(icon: v.icon, text: '$n ${v.label}', color: v.ink(context)),
+            // What was danced instead, so the fix is clear.
+            for (final MapEntry(key: did, value: n) in group.didInstead.entries)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.only(top: 2),
+                child: Text('Did ${stepLabel(did)} instead of ${stepLabel(group.step)} ×$n',
+                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              ),
           ],
         ),
       ),

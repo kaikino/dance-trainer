@@ -66,6 +66,51 @@ class Preset {
       .map((s) => (s.beat, s.stepClass))
       .toList();
 
+  /// Indices into [steps] per foot, in beat order (built once per step list).
+  static final _byFoot = Expando<Map<Role, List<int>>>();
+  Map<Role, List<int>> get _footIndex => _byFoot[steps] ??= {
+        for (final f in Role.values)
+          f: [for (var i = 0; i < steps.length; i++) if (steps[i].foot == f) i]
+            ..sort((a, b) => steps[a].beat.compareTo(steps[b].beat)),
+      };
+
+  /// Indices into [steps] in beat order (ties keep the file order).
+  static final _byBeat = Expando<List<int>>();
+  List<int> get beatOrder => _byBeat[steps] ??= [for (var i = 0; i < steps.length; i++) i]
+    ..sort((a, b) {
+      final c = steps[a].beat.compareTo(steps[b].beat);
+      return c != 0 ? c : a.compareTo(b);
+    });
+
+  /// The scheduled step for [foot] nearest to [beat], at most [within] beats
+  /// away, ignoring steps before [fromBeat]. Null when none is that close.
+  int? nearestStep(Role foot, double beat, {required double within, double fromBeat = double.negativeInfinity}) {
+    final idx = _footIndex[foot]!;
+    // First entry at or after beat - within (binary search).
+    var lo = 0, hi = idx.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (steps[idx[mid]].beat < beat - within) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    int? best;
+    var bestErr = double.infinity;
+    for (var k = lo; k < idx.length; k++) {
+      final s = steps[idx[k]];
+      if (s.beat > beat + within) break;
+      if (s.beat < fromBeat) continue;
+      final err = (s.beat - beat).abs();
+      if (err < bestErr) {
+        bestErr = err;
+        best = idx[k];
+      }
+    }
+    return best;
+  }
+
   /// Bars of 4 beats from beat 1 to the last step.
   int get bars => ((lastBeat - 1) ~/ 4) + 1;
 

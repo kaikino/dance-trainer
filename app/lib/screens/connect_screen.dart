@@ -5,9 +5,11 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
+import '../store/settings.dart';
 import '../ui/style.dart';
 import 'calibrate_screen.dart';
 import 'live_view_screen.dart';
+import 'onboarding_screen.dart';
 import 'preset_screen.dart';
 
 /// Find both nodes and calibrate them. Entry screen. (Clocks are synced at the start of each session.)
@@ -27,6 +29,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
   void initState() {
     super.initState();
     m.addListener(_onChange);
+    // First run: how to wear the nodes, once.
+    if (!AppSettings.onboardingSeen) WidgetsBinding.instance.addPostFrameCallback((_) => _openOnboarding());
+  }
+
+  Future<void> _openOnboarding() async {
+    if (!mounted) return;
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => OnboardingScreen(manager: m)));
+    if (mounted) setState(() {});
   }
 
   @override
@@ -71,10 +81,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
   }
 
   /// Calibrated well enough to judge directions (old firmware cannot say: assume so).
-  static bool _calibrated(NodeClient n) {
-    final st = n.status;
-    return st == null || st.calFlags == null || (st.knowsForward && !st.boardMoved);
-  }
+  static bool _calibrated(NodeClient n) => !calStateOf(n.status).needsCalibration;
 
   void _openRoutines() => Navigator.push(context, MaterialPageRoute(builder: (_) => PresetScreen(manager: m)));
 
@@ -108,7 +115,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
             : (routine, [calibrate]);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Dance Trainer')),
+      appBar: AppBar(
+        title: const Text('Dance Trainer'),
+        actions: [
+          TextButton.icon(
+            onPressed: _openOnboarding,
+            icon: const Icon(Icons.help_outline_rounded),
+            label: const Text('How to wear'),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -160,12 +177,12 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final st = n.status;
     final theme = Theme.of(context);
     final warn = warnColor(context);
-    final calPill = switch (st) {
-      null || Status(calFlags: null) => null,
-      Status(boardMoved: true) => StatusPill(icon: Icons.error_outline, text: 'Board moved', color: warn),
-      Status(knowsForward: true) => StatusPill(icon: Icons.check_circle, text: 'Calibrated', color: okColor(context)),
-      Status(calibrated: true) => StatusPill(icon: Icons.error_outline, text: 'Tilt only', color: warn),
-      _ => StatusPill(icon: Icons.error_outline, text: 'Needs calibration', color: warn),
+    final calPill = switch (calStateOf(st)) {
+      CalState.unknown => null,
+      CalState.boardMoved => StatusPill(icon: Icons.error_outline, text: 'Board moved', color: warn),
+      CalState.calibrated => StatusPill(icon: Icons.check_circle, text: 'Calibrated', color: okColor(context)),
+      CalState.tiltOnly => StatusPill(icon: Icons.error_outline, text: 'Tilt only', color: warn),
+      CalState.notCalibrated => StatusPill(icon: Icons.error_outline, text: 'Needs calibration', color: warn),
     };
     return Card(
       margin: const EdgeInsets.only(bottom: 12),

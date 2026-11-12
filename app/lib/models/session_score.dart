@@ -26,6 +26,9 @@ typedef MistakeGroup = ({
   int count,
   Map<Verdict, int> byVerdict,
 
+  /// For wrong steps: what was danced instead, and how often.
+  Map<StepClass, int> didInstead,
+
   /// Index into [Preset.steps] of the first step in the group.
   int first,
 });
@@ -86,10 +89,13 @@ class SessionScore {
   /// A node came back (it may have rebooted): its seq counter starts over.
   void forgetSeq(Role foot) => _lastSeq.remove(foot);
 
-  int count(Verdict v) => latest.values.where((e) => e.verdict == v).length;
+  /// Running count per verdict over [latest], kept as events arrive.
+  final _counts = <Verdict, int>{};
+
+  int count(Verdict v) => _counts[v] ?? 0;
 
   /// Steps with a verdict (correct or a mistake).
-  int get judged => latest.values.where((e) => e.verdict != Verdict.unjudged).length;
+  int get judged => latest.length - count(Verdict.unjudged);
 
   /// Share of judged steps that were correct, or null before any.
   double? get accuracy => judged == 0 ? null : count(Verdict.correct) / judged;
@@ -127,11 +133,15 @@ class SessionScore {
       final s = preset.steps[i];
       final key = (s.foot, s.stepClass);
       final g = groups[key];
+      final did = latest[i]!.stepClass;
       groups[key] = (
         foot: s.foot,
         step: s.stepClass,
         count: (g?.count ?? 0) + 1,
         byVerdict: {...?g?.byVerdict, v: (g?.byVerdict[v] ?? 0) + 1},
+        didInstead: v == Verdict.wrongStep && did != StepClass.none && did != s.stepClass
+            ? {...?g?.didInstead, did: (g?.didInstead[did] ?? 0) + 1}
+            : {...?g?.didInstead},
         first: g?.first ?? i,
       );
     }
@@ -143,20 +153,7 @@ class SessionScore {
   }
 
   /// Nearest scheduled step for [foot] in the current segment within 0.75 beat.
-  int? stepAt(Role foot, double beat) {
-    int? best;
-    var bestErr = double.infinity;
-    for (var i = 0; i < preset.steps.length; i++) {
-      final s = preset.steps[i];
-      if (s.foot != foot || s.beat < fromBeat) continue;
-      final err = (s.beat - beat).abs();
-      if (err < bestErr) {
-        bestErr = err;
-        best = i;
-      }
-    }
-    return bestErr <= 0.75 ? best : null;
-  }
+  int? stepAt(Role foot, double beat) => preset.nearestStep(foot, beat, within: 0.75, fromBeat: fromBeat);
 
   /// Scores one event from [foot] whose strike fell on [beat] (fractional).
   ScoredEvent add(Role foot, StepEvent e, double beat) {
@@ -174,7 +171,9 @@ class SessionScore {
     }
     final i = stepAt(foot, beat);
     if (i == null) return (fate: EventFate.unmatched, step: null);
+    if (latest[i] case final old?) _counts.update(old.verdict, (n) => n - 1);
     latest[i] = e;
+    _counts.update(e.verdict, (n) => n + 1, ifAbsent: () => 1);
     shown[i] = e.verdict;
     if (!_replayed.contains(i)) firstTry[i] = e.verdict;
     return (fate: EventFate.step, step: i);

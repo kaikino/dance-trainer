@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
+import '../ui/feet_diagram.dart';
 import '../ui/style.dart';
 import 'live_view_screen.dart';
 import 'preset_screen.dart';
@@ -39,7 +40,15 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
   NodeClient? get _node => _index < widget.nodes.length ? widget.nodes[_index] : null;
   bool get _finished => _node == null;
 
-  String _foot(NodeClient n) => n.role == Role.left ? 'left' : 'right';
+  String _foot(NodeClient n) => footName(n.role).toLowerCase();
+
+  /// The result in plain words, from the spread of the slides (the node
+  /// rejects anything over 15°).
+  static String _friendly(int spreadDeg) => switch (spreadDeg) {
+        <= 6 => 'Great, steady slides',
+        <= 10 => 'Good, fairly steady slides',
+        _ => 'Done, though the slides wandered a little. Calibrate again if steps are judged the wrong way.',
+      };
 
   @override
   void initState() {
@@ -190,38 +199,56 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
 
   Widget _step(BuildContext context, NodeClient n) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final st = n.status;
     final phase = _seenRunning ? st?.calPhase : CalPhase.still;
     final slide = (st?.calSlides ?? 0).clamp(0, _slides - 1) + 1;
-    final foot = _foot(n).toUpperCase();
-    final (icon, title, detail) = switch (phase) {
+    final foot = _foot(n);
+    final still = phase != CalPhase.slide && phase != CalPhase.back;
+    final (title, detail) = switch (phase) {
       CalPhase.slide => (
-          Icons.arrow_upward,
           'Slide your $foot foot forward',
           'About 30 cm along the floor, straight ahead. Slide $slide of $_slides.'
         ),
-      CalPhase.back => (Icons.arrow_downward, 'Bring your $foot foot back', 'Then hold still.'),
-      _ => (
-          Icons.accessibility_new,
-          'Stand still',
-          'Feet flat, toes pointing forward. It starts by itself once you are steady.'
-        ),
+      CalPhase.back => ('Bring your $foot foot back', 'To where it started, then hold still.'),
+      _ => ('Stand still', 'It starts by itself once you are steady.'),
     };
     final failed = _error != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (widget.nodes.length > 1)
-          Text('Foot ${_index + 1} of ${widget.nodes.length}', style: theme.textTheme.titleSmall),
+        Text(
+          '${widget.nodes.length > 1 ? 'Foot ${_index + 1} of ${widget.nodes.length}: ' : ''}'
+          'calibrating the $foot foot, so the app knows which way is forward.',
+          style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant),
+        ),
         const Spacer(),
-        Icon(failed ? Icons.error_outline : icon, size: 72, color: failed ? theme.colorScheme.error : theme.colorScheme.primary),
+        const SizedBox(height: 12),
+        if (failed)
+          Icon(Icons.error_outline, size: 72, color: scheme.error)
+        else
+          FeetDiagram(
+            active: n.role,
+            arrow: switch (phase) {
+              CalPhase.slide => FeetArrow.forward,
+              CalPhase.back => FeetArrow.back,
+              _ => FeetArrow.none,
+            },
+            showStance: still,
+            height: 240,
+          ),
         const SizedBox(height: 16),
         Text(failed ? 'That did not work' : title,
-            textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
+            textAlign: TextAlign.center, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         Text(failed ? _error! : detail, textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
+        // The stance the step classifier assumes: big, while it is being measured.
+        if (!failed && still) ...[
+          const SizedBox(height: 16),
+          _StanceCard(),
+        ],
         if (!failed) ...[
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           _Progress(phase: phase, slides: st?.calSlides ?? 0, total: _slides),
         ],
         const Spacer(),
@@ -253,7 +280,7 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
             textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
         const SizedBox(height: 8),
         for (final e in _done.entries)
-          Text('${footName(e.key.role)} foot: slides agreed within ${e.value}°',
+          Text('${footName(e.key.role)} foot: ${_friendly(e.value)}',
               textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
         for (final n in _skipped)
           Text('${footName(n.role)} foot: not calibrated', textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
@@ -319,6 +346,30 @@ class _Progress extends StatelessWidget {
         for (var i = 0; i < total; i++)
           mark('Slide ${i + 1}', slides > i, phase == CalPhase.slide && slides == i),
       ],
+    );
+  }
+}
+
+/// The calibration stance, set apart so it is read: the classifier assumes it.
+class _StanceCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: scheme.tertiaryContainer, borderRadius: BorderRadius.circular(16)),
+      child: Row(
+        children: [
+          Icon(Icons.accessibility_new_rounded, color: scheme.onTertiaryContainer, size: 32),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(stanceInstruction,
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(color: scheme.onTertiaryContainer, fontWeight: FontWeight.w600, height: 1.35)),
+          ),
+        ],
+      ),
     );
   }
 }

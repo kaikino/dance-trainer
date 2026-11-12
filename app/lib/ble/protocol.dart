@@ -83,10 +83,6 @@ class Status {
       calSpreadDeg: b.length >= 10 ? d.getUint8(9) : 0,
     );
   }
-
-  @override
-  String toString() => 'fw ${fwVersion >> 8}.${fwVersion & 0xff}  bat $batteryPct%  ${mode.name}'
-      '${calFlags == null ? '' : knowsForward ? '  calibrated' : calibrated ? '  tilt only' : '  not calibrated'}';
 }
 
 class TimeSyncReply {

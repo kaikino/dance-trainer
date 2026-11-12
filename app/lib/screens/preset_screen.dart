@@ -2,37 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../ble/node_client.dart';
-import '../ble/protocol.dart';
 import '../models/preset.dart';
+import '../models/session_kind.dart';
+import '../store/history.dart';
 import '../store/settings.dart';
+import '../ui/step_legend.dart';
 import '../ui/style.dart';
 import 'calibrate_screen.dart';
 import 'dance_screen.dart';
+import 'history_screen.dart';
 import 'sound_sync_dialog.dart';
 
-/// How a session behaves. Capture and Dance are the node's modes; Practice and
-/// Performance are both node mode `dance`, differing only in what the app does
-/// on a mistake.
-enum SessionKind { capture, performance, practice }
-
-extension SessionKindX on SessionKind {
-  Mode get nodeMode => this == SessionKind.capture ? Mode.capture : Mode.dance;
-  String get title => switch (this) {
-        SessionKind.capture => 'Capture',
-        SessionKind.performance => 'Performance',
-        SessionKind.practice => 'Practice',
-      };
-  String get description => switch (this) {
-        SessionKind.capture => 'Record raw sensor data for training the step classifier',
-        SessionKind.performance => 'Dance it straight through and get scored at the end.',
-        SessionKind.practice => 'Stops on a wrong or missed step and goes back to the start of that bar.',
-      };
-  IconData get icon => switch (this) {
-        SessionKind.practice => Icons.school_rounded,
-        SessionKind.performance => Icons.emoji_events_rounded,
-        SessionKind.capture => Icons.fiber_manual_record_rounded,
-      };
-}
+export '../models/session_kind.dart';
 
 class PresetScreen extends StatefulWidget {
   const PresetScreen({super.key, required this.manager});
@@ -45,9 +26,22 @@ class PresetScreen extends StatefulWidget {
 class _PresetScreenState extends State<PresetScreen> {
   List<Preset>? _presets;
   Preset? _selected;
-  SessionKind _kind = SessionKind.performance;
+  SessionKind _kind = SessionKind.values.where((k) => k.name == AppSettings.lastKind).firstOrNull ??
+      SessionKind.performance;
   final _dancer = TextEditingController(text: 'dancer');
-  double _tempo = 1.0;
+
+  /// Past sessions, for the best score on each card.
+  List<HistoryEntry> _history = const [];
+  Map<int, double> _best = const {};
+
+  /// Practice starts a little slower, so a new routine can be learnt.
+  static const practiceTempo = 0.8;
+
+  /// The tempo for each mode, remembered between visits.
+  double _tempoFor(SessionKind k) =>
+      AppSettings.tempoByKind[k.name] ?? (k == SessionKind.practice ? practiceTempo : 1.0);
+  double get _tempo => _tempoFor(_kind);
+  set _tempo(double v) => AppSettings.tempoByKind[_kind.name] = v;
 
   NodeManager get m => widget.manager;
 
@@ -77,34 +71,70 @@ class _PresetScreenState extends State<PresetScreen> {
     if (!mounted) return;
     setState(() {
       _presets = presets;
-      _selected = presets.firstOrNull;
+      _selected = presets.where((p) => p.id == AppSettings.lastPresetId).firstOrNull ?? presets.firstOrNull;
+    });
+    await _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    final history = await SessionHistory.load();
+    if (!mounted) return;
+    setState(() {
+      _history = history;
+      _best = SessionHistory.bestByPreset(history);
     });
   }
 
-  /// Connected nodes whose firmware says the toe direction is unknown or stale.
-  List<NodeClient> get _needCalibration => m.connectedNodes.where((n) {
-        final st = n.status;
-        return st != null && st.calFlags != null && (!st.knowsForward || st.boardMoved);
-      }).toList();
+  /// Remembers the routine, mode and tempo for next time.
+  void _remember() {
+    AppSettings.lastPresetId = _selected?.id;
+    AppSettings.lastKind = _kind.name;
+    AppSettings.save().catchError((_) {});
+  }
 
-  void _start() => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DanceScreen(
-            manager: m,
-            preset: _selected!.withTempo(_tempo),
-            kind: _kind,
-            dancer: _dancer.text.trim().isEmpty ? 'dancer' : _dancer.text.trim(),
-          ),
+  /// Connected nodes whose firmware says the toe direction is unknown or stale.
+  List<NodeClient> get _needCalibration =>
+      m.connectedNodes.where((n) => calStateOf(n.status).needsCalibration).toList();
+
+  Future<void> _start({bool demo = false}) async {
+    _remember();
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DanceScreen(
+          manager: m,
+          preset: _selected!.withTempo(_tempo),
+          kind: _kind,
+          dancer: _dancer.text.trim().isEmpty ? 'dancer' : _dancer.text.trim(),
+          demo: demo,
         ),
-      );
+      ),
+    );
+    await _loadHistory();
+  }
+
+  Future<void> _openHistory(Preset p) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => HistoryScreen(preset: p)));
+    await _loadHistory();
+  }
 
   @override
   Widget build(BuildContext context) {
     final presets = _presets;
     final noNodes = m.connectedNodes.isEmpty;
+    final narrow = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
-      appBar: AppBar(title: const Text('Choose a routine')),
+      appBar: AppBar(
+        title: const Text('Choose a routine'),
+        actions: [
+          IconButton(
+            onPressed: () => showStepLegend(context),
+            icon: const Icon(Icons.info_outline_rounded),
+            tooltip: 'What the steps mean',
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
       bottomNavigationBar: presets == null
           ? null
           : BottomActions(
@@ -113,9 +143,21 @@ class _PresetScreenState extends State<PresetScreen> {
                 FilledButton.icon(
                   onPressed: _selected == null || noNodes ? null : _start,
                   icon: Icon(noNodes ? Icons.bluetooth_disabled_rounded : Icons.play_arrow_rounded),
-                  label: Text(noNodes
-                      ? 'Connect a node to start'
-                      : 'Start ${_kind.title.toLowerCase()}${_selected == null ? '' : ' · ${(_selected!.bpm * _tempo).round()} bpm'}'),
+                  label: Text(
+                    noNodes
+                        ? 'Connect a node to start'
+                        : 'Start ${_kind.title.toLowerCase()}'
+                            // The tempo is on the screen above; a phone has no room for it here.
+                            '${_selected == null || narrow ? '' : ' · ${(_selected!.bpm * _tempo).round()} bpm'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                // No nodes needed: the chart and the music only.
+                OutlinedButton.icon(
+                  onPressed: _selected == null ? null : () => _start(demo: true),
+                  icon: const Icon(Icons.visibility_rounded),
+                  label: Text(narrow ? 'Watch' : 'Watch first', maxLines: 1, overflow: TextOverflow.ellipsis),
                 ),
               ],
             ),
@@ -214,7 +256,21 @@ class _PresetScreenState extends State<PresetScreen> {
   }
 
   Widget _routines(List<Preset> presets, bool wide) {
-    final cards = [for (final p in presets) _RoutineCard(preset: p, selected: p == _selected, onTap: () => setState(() => _selected = p))];
+    final cards = [
+      for (final p in presets)
+        _RoutineCard(
+          preset: p,
+          selected: p == _selected,
+          best: _best[p.id],
+          sessions: _history.where((e) => e.presetId == p.id).length,
+          fill: wide,
+          onTap: () {
+            setState(() => _selected = p);
+            _remember();
+          },
+          onHistory: () => _openHistory(p),
+        ),
+    ];
     if (!wide) {
       return Column(
         children: [for (final c in cards) Padding(padding: const EdgeInsets.only(bottom: 12), child: c)],
@@ -252,6 +308,7 @@ class _PresetScreenState extends State<PresetScreen> {
             style: SegmentedButton.styleFrom(textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
             onSelectionChanged: (s) {
               if (s.isNotEmpty) setState(() => _kind = s.first);
+              _remember();
             },
           ),
         ),
@@ -265,14 +322,28 @@ class _PresetScreenState extends State<PresetScreen> {
   Widget _tempoSection(BuildContext context) {
     final theme = Theme.of(context);
     final bpm = _selected == null ? null : (_selected!.bpm * _tempo).round();
+    void set(double v, {bool save = false}) {
+      setState(() => _tempo = v);
+      if (save) _remember();
+    }
+
+    // Slow is Practice's starting tempo; Normal is as written.
+    Widget preset(String label, double v) => ChoiceChip(
+          label: Text(label),
+          selected: (_tempo - v).abs() < 0.001,
+          showCheckmark: false,
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          onSelected: (_) => set(v, save: true),
+        );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SectionHeader(
           'Tempo',
-          trailing: _tempo == 1.0
-              ? null
-              : TextButton(onPressed: () => setState(() => _tempo = 1.0), child: const Text('Reset')),
+          trailing: Wrap(spacing: 8, children: [preset('Slow', practiceTempo), preset('Normal', 1.0)]),
         ),
         Row(
           crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -283,7 +354,7 @@ class _PresetScreenState extends State<PresetScreen> {
             const SizedBox(width: 6),
             Text('bpm', style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.primary)),
             const Spacer(),
-            Text(_tempo == 1.0 ? 'as written' : '${(_tempo * 100).round()}% speed',
+            Text((_tempo - 1.0).abs() < 0.001 ? 'as written' : '${(_tempo * 100).round()}% speed',
                 style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
           ],
         ),
@@ -299,7 +370,8 @@ class _PresetScreenState extends State<PresetScreen> {
               divisions: 12,
               label: bpm == null ? '${(_tempo * 100).round()}%' : '$bpm bpm',
               padding: const EdgeInsets.symmetric(vertical: 12),
-              onChanged: (v) => setState(() => _tempo = v),
+              onChanged: set,
+              onChangeEnd: (v) => set(v, save: true),
             ),
           ),
         ),
@@ -318,7 +390,7 @@ class _PresetScreenState extends State<PresetScreen> {
           trailing: OutlinedButton(
             onPressed: () async {
               await SoundSyncDialog.show(context);
-              setState(() {});
+              if (mounted) setState(() {});
             },
             child: const Text('Test'),
           ),
@@ -337,7 +409,10 @@ class _PresetScreenState extends State<PresetScreen> {
           children: [
             RadioGroup<SessionKind>(
               groupValue: _kind,
-              onChanged: (v) => setState(() => _kind = v!),
+              onChanged: (v) {
+                setState(() => _kind = v!);
+                _remember();
+              },
               child: RadioListTile<SessionKind>(
                 contentPadding: EdgeInsets.zero,
                 value: SessionKind.capture,
@@ -354,17 +429,32 @@ class _PresetScreenState extends State<PresetScreen> {
       );
 }
 
-/// One routine: name, tempo and length, and its first two bars as step icons.
+/// One routine: name, tempo and length, its first two bars as step icons,
+/// and the best score so far with a link to its history.
 class _RoutineCard extends StatelessWidget {
-  const _RoutineCard({required this.preset, required this.selected, required this.onTap});
+  const _RoutineCard({
+    required this.preset,
+    required this.selected,
+    required this.onTap,
+    required this.onHistory,
+    this.best,
+    this.sessions = 0,
+    this.fill = false,
+  });
+
+  /// In a row of equal-height cards: the best-score line sits at the bottom.
+  final bool fill;
   final Preset preset;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback onTap, onHistory;
+  final double? best;
+  final int sessions;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final b = best;
     return Semantics(
       selected: selected,
       button: true,
@@ -378,7 +468,7 @@ class _RoutineCard extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -398,8 +488,28 @@ class _RoutineCard extends StatelessWidget {
                     style: theme.textTheme.bodyLarge?.copyWith(color: scheme.onSurfaceVariant)),
                 const SizedBox(height: 14),
                 ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 280),
+                  constraints: const BoxConstraints(maxWidth: 300),
                   child: StepPatternPreview(preset: preset, color: selected ? scheme.primary : scheme.secondary),
+                ),
+                if (fill) const Spacer(),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    if (b != null)
+                      StatusPill(icon: Icons.emoji_events_rounded, text: 'Best ${(b * 100).round()}%', color: accuracyColor(context, b))
+                    else
+                      Text(sessions == 0 ? 'Not danced yet' : 'No full run yet',
+                          style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+                    const Spacer(),
+                    if (sessions > 0)
+                      TextButton.icon(
+                        onPressed: onHistory,
+                        icon: const Icon(Icons.history_rounded, size: 20),
+                        label: const Text('History'),
+                      )
+                    else
+                      const SizedBox(height: 48),
+                  ],
                 ),
               ],
             ),

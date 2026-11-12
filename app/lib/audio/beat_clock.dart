@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -26,23 +27,62 @@ import '../store/settings.dart';
 class BeatClock extends ChangeNotifier {
   BeatClock(this.preset) {
     _playerSub = _player.playerStateStream.listen((s) {
-      // The player stopped while the clock thought it was playing: audio focus
-      // lost (a call, another app) or the output went away.
+      // The player stopped while the clock thought it was playing (the output
+      // went away, a player error).
       if (_anchorWallMs != null && !s.playing && s.processingState != ProcessingState.completed) {
-        onInterrupted?.call();
+        _interrupt();
       }
     });
+    unawaited(_session().then((session) {
+      if (_disposed) return;
+      _sessionSubs
+        ..add(session.interruptionEventStream.listen(onAudioInterruption))
+        ..add(session.becomingNoisyEventStream.listen((_) => onBecomingNoisy()));
+    }).catchError((Object _) {}));
   }
 
   final Preset preset;
-  final _player = AudioPlayer();
-  late final StreamSubscription<PlayerState> _playerSub;
 
-  /// Called when playback stops without [pause] or [stop] being asked for.
+  /// just_audio's own interruption handling is off: it pauses on a call and
+  /// then plays again by itself when the call ends, while the dance screen
+  /// says Paused and the nodes are stopped. This clock pauses instead and
+  /// leaves resuming to the dancer.
+  final _player = AudioPlayer(handleInterruptions: false);
+  late final StreamSubscription<PlayerState> _playerSub;
+  final _sessionSubs = <StreamSubscription<dynamic>>[];
+  bool _disposed = false;
+
+  /// The app's audio session, set up once as music playback.
+  static Future<AudioSession>? _configured;
+  static Future<AudioSession> _session() => _configured ??= AudioSession.instance.then((s) async {
+        await s.configure(const AudioSessionConfiguration.music());
+        return s;
+      });
+
+  /// Called when playback stops without [pause] or [stop] being asked for:
+  /// audio focus lost (a call, another app), headphones unplugged. The clock
+  /// has already paused; it never resumes by itself.
   VoidCallback? onInterrupted;
 
   int? t0AppMs;
-  bool get playing => _player.playing;
+
+  /// Another app or a call took the audio. Only the start of an interruption
+  /// matters: the end is ignored (the dancer presses Resume). Ducking is left
+  /// to the system.
+  @visibleForTesting
+  void onAudioInterruption(AudioInterruptionEvent e) {
+    if (e.begin && e.type != AudioInterruptionType.duck) _interrupt();
+  }
+
+  /// Headphones or a speaker went away: stop rather than blare from the device.
+  @visibleForTesting
+  void onBecomingNoisy() => _interrupt();
+
+  void _interrupt() {
+    if (_anchorWallMs == null || _disposed) return;
+    unawaited(pause());
+    onInterrupted?.call();
+  }
 
   /// Track ms per wall ms: music is sped up or slowed for a tempo change; the
   /// metronome is generated at the new tempo and plays at normal speed.
@@ -123,6 +163,10 @@ class BeatClock extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    for (final s in _sessionSubs) {
+      s.cancel();
+    }
     _playerSub.cancel();
     _player.dispose();
     super.dispose();
