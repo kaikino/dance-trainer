@@ -98,10 +98,15 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
   int? _t0AppMs; // beat 1 of the current segment
   _Hold? _hold;
 
-  /// Nodes dancing in this session, and the note about one dropping out.
+  /// Nodes dancing in this session, and those that dropped out and are not
+  /// back yet (the banner, for as long as any is missing).
   final _linked = <Role>{};
-  ({String text, bool ok})? _nodeNote;
-  Timer? _nodeNoteTimer;
+  final _missing = <Role>{};
+  bool _reconnecting = false;
+
+  /// Short-lived news about a node ("Left ankle reconnected").
+  ({String text, bool ok})? _toast;
+  Timer? _toastTimer;
 
   NodeManager get m => widget.manager;
 
@@ -310,10 +315,9 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
   void _onNodes() {
     if (!mounted || _ending || _phase != _Phase.running) return;
     for (final n in m.nodes) {
-      final foot = footName(n.role);
       if (_linked.contains(n.role) && !n.connected) {
         _linked.remove(n.role);
-        _note('$foot ankle disconnected', ok: false);
+        setState(() => _missing.add(n.role));
       } else if (!_linked.contains(n.role) && n.connected && n.status != null) {
         _linked.add(n.role);
         _rejoin(n);
@@ -335,23 +339,37 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
         await n.pushSchedule(_preset.id, _preset.bpm, _preset.scheduleFor(n.role, fromBeat: from));
         await n.start(widget.kind.nodeMode, t0);
       }
-      _note('$foot ankle reconnected', ok: true);
+      if (mounted) setState(() => _missing.remove(n.role));
+      _showToast('$foot ankle reconnected', ok: true);
     } catch (e) {
       _linked.remove(n.role);
-      _note('$foot ankle could not rejoin', ok: false);
+      if (mounted) setState(() => _missing.add(n.role));
+      _showToast('$foot ankle could not rejoin', ok: false);
     }
   }
 
-  void _note(String text, {required bool ok}) {
-    if (!mounted) return;
-    _nodeNoteTimer?.cancel();
-    setState(() => _nodeNote = (text: text, ok: ok));
-    // Good news fades; a lost node stays on screen until it is back.
-    if (ok) {
-      _nodeNoteTimer = Timer(const Duration(seconds: 3), () {
-        if (mounted) setState(() => _nodeNote = null);
-      });
+  /// The banner's Reconnect: scan for the missing nodes now instead of
+  /// waiting for the automatic retries.
+  Future<void> _reconnectNodes() async {
+    setState(() => _reconnecting = true);
+    try {
+      await m.scanAndConnect();
+    } on BleUnavailable catch (e) {
+      _showToast(e.message, ok: false);
+    } catch (e) {
+      _showToast('Could not reconnect: $e', ok: false);
+    } finally {
+      if (mounted) setState(() => _reconnecting = false);
     }
+  }
+
+  void _showToast(String text, {required bool ok}) {
+    if (!mounted) return;
+    _toastTimer?.cancel();
+    setState(() => _toast = (text: text, ok: ok));
+    _toastTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _toast = null);
+    });
   }
 
   @override
@@ -432,7 +450,7 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     m.removeListener(_onNodes);
-    _nodeNoteTimer?.cancel();
+    _toastTimer?.cancel();
     _ticker.dispose();
     for (final s in _subs) {
       s.cancel();
@@ -487,7 +505,9 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (_nodeNote case final note?) _NodeNote(text: note.text, ok: note.ok),
+                        if (disconnectedText(_missing) case final text?)
+                          _NodeBanner(text: text, busy: _reconnecting, onReconnect: _reconnectNodes),
+                        if (_toast case final t?) _NodeToast(text: t.text, ok: t.ok),
                         if (_hold case _Mistake() || _Choice()) _holdCard(theme),
                       ],
                     ),
@@ -601,14 +621,14 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
     final bar = barOf(hold.fromBeat);
     return switch (hold) {
       _Mistake() => _HoldCard(
-          color: hold.verdict.color,
+          color: hold.verdict.ink(context),
           icon: hold.verdict.icon,
           title: hold.title,
           detail: hold.detail,
           chips: ['Again from bar $bar', 'Try ${hold.nextTry} of ${PracticeCoach.maxTries}'],
         ),
       _Choice() => _HoldCard(
-          color: Verdict.offBeat.color,
+          color: Verdict.offBeat.ink(context),
           icon: Icons.replay_rounded,
           title: 'Bar $bar is a tricky one',
           detail: '${PracticeCoach.maxTries} tries without getting it. Slow it down, or move on and come back to it.',
@@ -672,26 +692,36 @@ class _StatusHeader extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Text(text,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
-          ),
-          for (var i = 0; i < 4; i++)
-            Container(
-              width: 22,
-              height: 22,
-              margin: const EdgeInsets.only(left: 8),
-              alignment: Alignment.center,
-              child: Container(
-                width: beatInBar == i ? 22 : 14,
-                height: beatInBar == i ? 22 : 14,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: beatInBar == i ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest,
-                ),
-              ),
+            // Shrinks rather than cuts "Bar 12 of 16" in a narrow side panel or at large text.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(text, maxLines: 1, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
             ),
+          ),
+          Semantics(
+            label: beatInBar == null ? null : 'beat ${beatInBar! + 1} of 4',
+            excludeSemantics: true,
+            child: Row(
+              children: [
+                for (var i = 0; i < 4; i++)
+                  Container(
+                    width: 22,
+                    height: 22,
+                    margin: const EdgeInsets.only(left: 8),
+                    alignment: Alignment.center,
+                    child: Container(
+                      width: beatInBar == i ? 22 : 14,
+                      height: beatInBar == i ? 22 : 14,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: beatInBar == i ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -848,15 +878,72 @@ class _HoldCard extends StatelessWidget {
   }
 }
 
-/// "Right ankle disconnected" (stays) or "reconnected" (fades).
-class _NodeNote extends StatelessWidget {
-  const _NodeNote({required this.text, required this.ok});
+/// What the disconnect banner says for the nodes that are missing, or null
+/// when none is.
+String? disconnectedText(Set<Role> missing) => switch (missing.length) {
+      0 => null,
+      1 => '${footName(missing.single)} ankle disconnected',
+      _ => 'Both ankles disconnected',
+    };
+
+/// Stays while any node is missing, with a button to scan for it now (it is
+/// also retried in the background).
+class _NodeBanner extends StatelessWidget {
+  const _NodeBanner({required this.text, required this.busy, required this.onReconnect});
+  final String text;
+  final bool busy;
+  final VoidCallback onReconnect;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: scheme.error,
+        elevation: 4,
+        borderRadius: BorderRadius.circular(28),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 6, 8, 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.bluetooth_disabled_rounded, color: scheme.onError),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(text,
+                      style: TextStyle(color: scheme.onError, fontSize: 18, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: busy ? null : onReconnect,
+                style: TextButton.styleFrom(
+                    foregroundColor: scheme.onError,
+                    disabledForegroundColor: scheme.onError.withValues(alpha: 0.6),
+                    textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                child: Text(busy ? 'Scanning…' : 'Reconnect'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Left ankle reconnected" (or a failed rejoin), for a few seconds.
+class _NodeToast extends StatelessWidget {
+  const _NodeToast({required this.text, required this.ok});
   final String text;
   final bool ok;
 
   @override
   Widget build(BuildContext context) {
-    final bg = ok ? Verdict.correct.color : Theme.of(context).colorScheme.error;
+    final scheme = Theme.of(context).colorScheme;
+    final (bg, fg) = ok ? (Verdict.correct.fill, Colors.white) : (scheme.errorContainer, scheme.onErrorContainer);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
@@ -868,11 +955,13 @@ class _NodeNote extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(ok ? Icons.bluetooth_connected_rounded : Icons.bluetooth_disabled_rounded, color: Colors.white),
+              Icon(ok ? Icons.bluetooth_connected_rounded : Icons.error_outline_rounded, color: fg),
               const SizedBox(width: 10),
               Flexible(
-                child:
-                    Text(text, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(text, style: TextStyle(color: fg, fontSize: 18, fontWeight: FontWeight.w700)),
+                ),
               ),
             ],
           ),
@@ -920,43 +1009,67 @@ class _Tally extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return LayoutBuilder(builder: (context, c) {
-      final vertical = c.maxHeight > c.maxWidth;
-      final tiles = [for (final v in scoredVerdicts) Expanded(child: _tile(theme, v, score.count(v), vertical))];
-      return vertical
-          ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: tiles)
-          : Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: tiles);
+      // A tall side panel: one tile per line. A wide strip (phone portrait):
+      // four across, number over label. In between (phone landscape): 2 × 2.
+      final ratio = c.maxWidth / c.maxHeight;
+      final tall = ratio < 0.8, strip = ratio > 3;
+      Widget tile(Verdict v) => Expanded(child: _tile(context, v, score.count(v), !strip));
+      Widget line(Iterable<Verdict> vs) =>
+          Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [for (final v in vs) tile(v)]);
+      if (tall) {
+        return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch, children: [for (final v in scoredVerdicts) tile(v)]);
+      }
+      if (strip) return line(scoredVerdicts);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [Expanded(child: line(scoredVerdicts.take(2))), Expanded(child: line(scoredVerdicts.skip(2)))],
+      );
     });
   }
 
-  /// [row]: number beside the label (tall side panel), else stacked (phone strip).
-  Widget _tile(ThemeData theme, Verdict v, int n, bool row) {
+  /// [row]: number beside the label (side panel), else stacked (phone strip).
+  Widget _tile(BuildContext context, Verdict v, int n, bool row) {
+    final theme = Theme.of(context);
     final active = n > 0;
-    final color = active ? v.color : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7);
-    final number = Text('$n',
-        style: theme.textTheme.displaySmall?.copyWith(color: color, fontWeight: FontWeight.w800, height: 1.05));
-    final label = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(v.icon, color: color, size: 20),
-        const SizedBox(width: 6),
-        Text(v.label, style: theme.textTheme.titleMedium?.copyWith(color: color, fontWeight: FontWeight.w600)),
-      ],
-    );
-    return Container(
-      margin: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: active ? v.color.withValues(alpha: 0.12) : theme.colorScheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      // Tight constraints, so the FittedBox scales the content up to fill the tile.
-      child: FittedBox(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: row
-              ? Row(mainAxisSize: MainAxisSize.min, children: [number, const SizedBox(width: 14), label])
-              : Column(mainAxisSize: MainAxisSize.min, children: [number, label]),
+    final ink = v.ink(context);
+    final color = active ? ink : theme.colorScheme.onSurfaceVariant;
+    Widget content(String count, String label) {
+      final number = Text(count,
+          style: theme.textTheme.displaySmall?.copyWith(color: color, fontWeight: FontWeight.w800, height: 1.05));
+      final caption = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(v.icon, color: color, size: 20),
+          const SizedBox(width: 6),
+          Text(label, style: theme.textTheme.titleMedium?.copyWith(color: color, fontWeight: FontWeight.w600)),
+        ],
+      );
+      return row
+          ? Row(mainAxisSize: MainAxisSize.min, children: [number, const SizedBox(width: 14), caption])
+          : Column(mainAxisSize: MainAxisSize.min, children: [number, caption]);
+    }
+
+    return Semantics(
+      label: '$n ${v.label}',
+      excludeSemantics: true,
+      child: Container(
+        margin: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: active ? ink.withValues(alpha: 0.14) : theme.colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        // Tight constraints, so the FittedBox scales the content up to fill the tile.
+        child: FittedBox(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: SizedLike(
+              alignment: row ? AlignmentDirectional.centerStart : Alignment.center,
+              sizer: content('00', widestVerdict.label),
+              child: content('$n', v.label),
+            ),
+          ),
         ),
       ),
     );
@@ -973,7 +1086,7 @@ class _CapturePanel extends StatelessWidget {
     final theme = Theme.of(context);
     final t0 = recorder.t0AppMs;
     final secs = t0 == null ? 0 : max(0, (DateTime.now().millisecondsSinceEpoch - t0) ~/ 1000);
-    const red = Color(0xFFD32F2F);
+    final red = theme.colorScheme.error;
     return FittedBox(
       fit: BoxFit.scaleDown,
       alignment: Alignment.topLeft,
@@ -986,10 +1099,10 @@ class _CapturePanel extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.circle, color: red, size: 14),
+                Icon(Icons.circle, color: red, size: 14),
                 const SizedBox(width: 8),
                 Text('REC ${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}',
-                    style: const TextStyle(color: red, fontWeight: FontWeight.w800, fontSize: 20)),
+                    style: TextStyle(color: red, fontWeight: FontWeight.w800, fontSize: 20)),
               ],
             ),
           ),

@@ -179,7 +179,7 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
       child: Scaffold(
         appBar: AppBar(title: const Text('Calibrate')),
         body: ContentWidth(
-          child: Padding(
+          child: FillScrollView(
             padding: const EdgeInsets.all(24),
             child: _finished ? _summary(context) : _step(context, _node!),
           ),
@@ -225,15 +225,16 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
           _Progress(phase: phase, slides: st?.calSlides ?? 0, total: _slides),
         ],
         const Spacer(),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
+        const SizedBox(height: 16),
+        OverflowBar(
+          alignment: MainAxisAlignment.end,
+          overflowAlignment: OverflowBarAlignment.end,
+          spacing: 8,
+          overflowSpacing: 8,
           children: [
             if (failed && widget.nodes.length > 1) TextButton(onPressed: _skip, child: const Text('Skip this foot')),
             TextButton(onPressed: _cancel, child: const Text('Cancel')),
-            if (failed) ...[
-              const SizedBox(width: 8),
-              FilledButton(onPressed: _start, child: const Text('Try again')),
-            ],
+            if (failed) FilledButton(onPressed: _start, child: const Text('Try again')),
           ],
         ),
       ],
@@ -246,17 +247,18 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Spacer(),
-        Icon(Icons.check_circle_outline, size: 72, color: _skipped.isEmpty ? Colors.green : Colors.orange),
+        Icon(Icons.check_circle_outline, size: 72, color: _skipped.isEmpty ? okColor(context) : warnColor(context)),
         const SizedBox(height: 16),
         Text(_skipped.isEmpty ? 'Calibrated' : 'Partly calibrated',
             textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
         const SizedBox(height: 8),
         for (final e in _done.entries)
-          Text('${e.key.role == Role.left ? 'Left' : 'Right'} foot: slides agreed within ${e.value}°',
+          Text('${footName(e.key.role)} foot: slides agreed within ${e.value}°',
               textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
         for (final n in _skipped)
-          Text('${n.role == Role.left ? 'Left' : 'Right'} foot: not calibrated', textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
+          Text('${footName(n.role)} foot: not calibrated', textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
         const Spacer(),
+        const SizedBox(height: 16),
         SizedBox(
           height: 56,
           child: FilledButton.icon(
@@ -297,12 +299,16 @@ class _Progress extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     // Plain status pills, not chips: nothing here is tappable.
-    Widget mark(String label, bool done, bool now) => Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-          child: StatusPill(
-            icon: done ? Icons.check_circle : (now ? Icons.radio_button_checked : Icons.radio_button_unchecked),
-            text: label,
-            color: done ? Verdict.correct.color : (now ? scheme.primary : null),
+    Widget mark(String label, bool done, bool now) => Semantics(
+          label: '$label, ${done ? 'done' : now ? 'now' : 'to do'}',
+          excludeSemantics: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: StatusPill(
+              icon: done ? Icons.check_circle : (now ? Icons.radio_button_checked : Icons.radio_button_unchecked),
+              text: label,
+              color: done ? okColor(context) : (now ? scheme.primary : null),
+            ),
           ),
         );
     final still = phase == CalPhase.still;

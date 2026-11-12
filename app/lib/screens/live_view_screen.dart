@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
 
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
+import '../ui/style.dart';
 
 /// Live check of each node's calibration: one view per foot of a flat,
 /// foot-shaped sole seen from behind and a little to the outside, with its
@@ -26,7 +28,11 @@ class LiveViewScreen extends StatefulWidget {
 class _LiveViewScreenState extends State<LiveViewScreen> {
   final _feet = <Role, _FootState>{};
   final _subs = <StreamSubscription<StreamBatch>>[];
-  Timer? _frame;
+  Timer? _frame, _speak;
+
+  /// What a screen reader hears per foot, refreshed once a second rather than
+  /// at the 50 Hz the picture moves (which kept the accessibility tree busy).
+  final _spoken = <Role, String>{};
 
   @override
   void initState() {
@@ -36,14 +42,25 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       _subs.add(n.batches.listen(f.add));
     }
     widget.manager.addListener(_onChange);
-    // Play the 50 Hz samples out at 50 Hz instead of jumping 5 at a time.
-    _frame = Timer.periodic(const Duration(milliseconds: 20), (_) {
+    // Play the samples out at their own rate instead of jumping 5 at a time.
+    _frame = Timer.periodic(Duration(microseconds: StreamBatch.sampleUs(Mode.idle).round()), (_) {
       var changed = false;
       for (final f in _feet.values) {
         changed |= f.step();
       }
       if (changed && mounted) setState(() {});
     });
+    _speak = Timer.periodic(const Duration(seconds: 1), (_) => _updateSpoken());
+    _updateSpoken();
+  }
+
+  void _updateSpoken() {
+    final next = {for (final f in _feet.values) f.node.role: _FootPanel.caption(f)};
+    if (mounted && !mapEquals(next, _spoken)) {
+      setState(() => _spoken
+        ..clear()
+        ..addAll(next));
+    }
   }
 
   void _onChange() {
@@ -53,6 +70,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   @override
   void dispose() {
     _frame?.cancel();
+    _speak?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
@@ -93,7 +111,9 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                 Expanded(
                   child: LayoutBuilder(
                     builder: (context, c) {
-                      final panels = [for (final f in feet) Expanded(child: _FootPanel(foot: f))];
+                      final panels = [
+                        for (final f in feet) Expanded(child: _FootPanel(foot: f, spoken: _spoken[f.node.role] ?? '')),
+                      ];
                       return c.maxWidth > c.maxHeight
                           ? Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: panels)
                           : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: panels);
@@ -168,7 +188,7 @@ class _FootState {
     final acc = b.samples.where((s) => !s.isGyro).toList();
     for (var i = 0; i < acc.length; i++) {
       final s = acc[i];
-      _integrate(s, (b.t0NodeUs + i * 20000) & 0xffffffff);
+      _integrate(s, (b.t0NodeUs + (i * StreamBatch.sampleUs(Mode.idle)).round()) & 0xffffffff);
       _queue.add((s, _pF, _pL));
     }
     if (_queue.length > 15) _queue.removeRange(0, _queue.length - 5);
@@ -262,8 +282,11 @@ class _FootState {
 }
 
 class _FootPanel extends StatelessWidget {
-  const _FootPanel({required this.foot});
+  const _FootPanel({required this.foot, required this.spoken});
   final _FootState foot;
+
+  /// [caption] as of the last once-a-second refresh, for screen readers.
+  final String spoken;
 
   static String _deg(double r) => '${(r * 180 / pi).abs().round()}°';
 
@@ -271,65 +294,75 @@ class _FootPanel extends StatelessWidget {
   static String? _angle(double r, String pos, String neg) =>
       r.abs() < 3 * pi / 180 ? null : '${_deg(r)} ${r > 0 ? pos : neg}';
 
-  @override
-  Widget build(BuildContext context) {
-    final st = foot.node.status;
-    final theme = Theme.of(context);
-    final (badge, color) = switch (st) {
-      _ when !foot.node.connected => ('Disconnected', theme.colorScheme.error),
-      null || Status(calFlags: null) => ('Calibration unknown (old firmware)', Colors.grey),
-      Status(boardMoved: true) => ('Board moved on the strap? Calibrate again', Colors.orange),
-      Status(knowsForward: true) => ('Calibrated', Colors.green),
-      Status(calibrated: true) => ('Tilt only: toe direction unknown, calibrate again', Colors.orange),
-      _ => ('Not calibrated: directions follow the board, not the foot', Colors.red),
-    };
+  /// How the foot is posed, in words.
+  static String caption(_FootState foot) {
     final parts = [
       if (_angle(foot.turnOut, 'out', 'in') case final s?) 'toe turned $s',
       if (_angle(foot.toeUp, 'up', 'down') case final s?) 'toe $s',
       if (_angle(foot.outerEdgeUp, 'up', 'down') case final s?) 'outer edge $s',
     ];
-    final caption = !foot.node.connected
+    return !foot.node.connected
         ? 'Disconnected. Go back and scan again.'
         : !foot.seen
-        ? 'Waiting for data…'
-        : parts.isEmpty
-            ? 'Flat, toe straight ahead'
-            : parts.join(' · ');
-    return Card(
-      margin: const EdgeInsets.all(8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(foot.left ? 'Left ankle' : 'Right ankle', style: theme.textTheme.titleMedium),
-                const SizedBox(width: 12),
-                Icon(Icons.circle, size: 10, color: color),
-                const SizedBox(width: 6),
-                Expanded(child: Text(badge, style: TextStyle(color: color), overflow: TextOverflow.ellipsis)),
-              ],
-            ),
-            Expanded(
-              // A dropped node: the last pose, greyed out.
-              child: Opacity(
-                opacity: foot.node.connected ? 1 : 0.3,
-                child: CustomPaint(painter: _FootPainter(foot, theme), size: Size.infinite),
+            ? 'Waiting for data…'
+            : parts.isEmpty
+                ? 'Flat, toe straight ahead'
+                : parts.join(' · ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final st = foot.node.status;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final (badge, color) = switch (st) {
+      _ when !foot.node.connected => ('Disconnected', scheme.error),
+      null || Status(calFlags: null) => ('Calibration unknown (old firmware)', scheme.onSurfaceVariant),
+      Status(boardMoved: true) => ('Board moved on the strap? Calibrate again', warnColor(context)),
+      Status(knowsForward: true) => ('Calibrated', okColor(context)),
+      Status(calibrated: true) => ('Tilt only: toe direction unknown, calibrate again', warnColor(context)),
+      _ => ('Not calibrated: directions follow the board, not the foot', scheme.error),
+    };
+    final captionStyle = theme.textTheme.titleMedium?.copyWith(height: 1.4);
+    final name = foot.left ? 'Left ankle' : 'Right ankle';
+    return Semantics(
+      container: true,
+      label: '$name. $badge. $spoken',
+      excludeSemantics: true,
+      child: Card(
+        margin: const EdgeInsets.all(8),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(name, style: theme.textTheme.titleMedium),
+                  const SizedBox(width: 12),
+                  Icon(Icons.circle, size: 10, color: color),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text(badge, style: TextStyle(color: color), overflow: TextOverflow.ellipsis)),
+                ],
               ),
-            ),
-            // Two lines reserved so the panel does not jump as the caption changes.
-            SizedBox(
-              height: (theme.textTheme.titleMedium?.fontSize ?? 16) * 1.4 * 2,
-              child: Center(
-                child: Text(caption,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(height: 1.4)),
+              Expanded(
+                // A dropped node: the last pose, greyed out.
+                child: Opacity(
+                  opacity: foot.node.connected ? 1 : 0.3,
+                  child: CustomPaint(painter: _FootPainter(foot, theme), size: Size.infinite),
+                ),
               ),
-            ),
-          ],
+              // Two lines reserved (at the user's text size) so the panel does
+              // not jump as the caption changes.
+              SizedBox(
+                height: MediaQuery.textScalerOf(context).scale(captionStyle?.fontSize ?? 16) * 1.4 * 2,
+                child: Center(
+                  child: Text(caption(foot),
+                      textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: captionStyle),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -480,8 +513,7 @@ class _FootPainter extends CustomPainter {
   }
 
   static double _dot(_V3 a, _V3 b) => a.$1 * b.$1 + a.$2 * b.$2 + a.$3 * b.$3;
-  static _V3 _cross(_V3 a, _V3 b) =>
-      (a.$2 * b.$3 - a.$3 * b.$2, a.$3 * b.$1 - a.$1 * b.$3, a.$1 * b.$2 - a.$2 * b.$1);
+  static _V3 _cross(_V3 a, _V3 b) => (a.$2 * b.$3 - a.$3 * b.$2, a.$3 * b.$1 - a.$1 * b.$3, a.$1 * b.$2 - a.$2 * b.$1);
 
   @override
   bool shouldRepaint(_FootPainter old) => true;

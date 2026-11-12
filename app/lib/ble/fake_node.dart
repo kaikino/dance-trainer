@@ -13,7 +13,7 @@ import 'protocol.dart';
 /// and on Start plays the role of a dancer who is mostly right: each scheduled
 /// step produces a step event near its beat, with a configurable share of
 /// late, wrong, and missed steps. It also streams synthetic IMU batches at the
-/// protocol's rate so the session recorder has something to write.
+/// firmware's rates so the session recorder has something to write.
 class FakeNodeClient extends NodeClient {
   FakeNodeClient(super.role, {int? seed}) : _rng = Random(seed ?? role.index + 475);
 
@@ -88,11 +88,15 @@ class FakeNodeClient extends NodeClient {
 
   void _step(int dueNodeUs, StepClass expected) {
     if (_mode == Mode.idle) return;
+    final capture = _mode == Mode.capture;
     final r = _rng.nextDouble();
     StepClass actual = expected;
     Verdict verdict = Verdict.correct;
     int errMs = (_rng.nextDouble() * 80 - 40).round();
     if (r < pMissed) {
+      // A real node only reports a missed step when it judges (dance mode);
+      // in capture a step it did not feel sends nothing.
+      if (capture) return;
       actual = StepClass.none;
       verdict = Verdict.missed;
       errMs = 0;
@@ -104,13 +108,16 @@ class FakeNodeClient extends NodeClient {
       errMs = 170 + _rng.nextInt(120);
       verdict = Verdict.offBeat;
     }
-    if (_mode == Mode.capture) verdict = Verdict.unjudged;
     final strike = dueNodeUs + errMs * 1000;
     // Real nodes report ~200 ms after the strike (window tail + inference).
     final delay = verdict == Verdict.missed ? 300 : 200 + errMs;
+    final conf = 180 + _rng.nextInt(75);
     _timers.add(Timer(Duration(milliseconds: max(0, delay)), () {
       if (_mode == Mode.idle) return;
-      emitEvent(StepEvent(_seq++, strike & 0xffffffff, actual, 180 + _rng.nextInt(75), expected, errMs, verdict));
+      // Capture mode does not judge: no expected class, timing or verdict (firmware judge.c).
+      emitEvent(capture
+          ? StepEvent(_seq++, strike & 0xffffffff, actual, conf, StepClass.none, 0, Verdict.unjudged)
+          : StepEvent(_seq++, strike & 0xffffffff, actual, conf, expected, errMs, verdict));
     }));
   }
 
@@ -176,33 +183,63 @@ class FakeNodeClient extends NodeClient {
 
   // ---- synthetic IMU stream ---------------------------------------------------
 
+  /// The simulated IMU makes sample k at a fixed time [_sampleTimeUs], so
+  /// batch times only ever move forward. [_streamNext] is the first sample not
+  /// yet taken; [_acc] and [_gyr] hold a batch being filled.
+  int _streamStartUs = 0, _streamNext = 0, _batchT0 = 0;
+  final _acc = <StreamSample>[], _gyr = <StreamSample>[];
+  bool _batchCapture = false;
+
+  int _sampleTimeUs(int k) => _streamStartUs + (k * 1e6 / StreamBatch.imuHz).round();
+
+  /// Like firmware ble.cpp stream_task: every 100 ms, the samples produced
+  /// since the last tick (every one in capture, every second one otherwise)
+  /// in whole batches; a partial batch is completed on the next tick.
   void _startStream() {
     _streamTimer?.cancel();
+    _streamStartUs = _nodeNowUs;
+    _streamNext = 0;
+    _acc.clear();
+    _gyr.clear();
     _streamTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      final produced = ((_nodeNowUs - _streamStartUs) * StreamBatch.imuHz / 1e6).floor();
       final capture = _mode == Mode.capture;
-      final stepUs = capture ? 10000 : 20000;
-      final t0 = _nodeNowUs - 100000;
-      final acc = <StreamSample>[];
-      final gyr = <StreamSample>[];
-      for (var i = 0; i < StreamBatch.samplesPerBatch; i++) {
-        int n() => (_rng.nextDouble() * 40 - 20).round();
-        // A foot that sways a little and slides forward every 3 s, so the
-        // live view has something to show.
-        final t = (t0 + i * stepUs) / 1e6;
-        final (qw, qx, qy, qz) = _quat(0.25 * sin(t * 0.7), 0.15 * sin(t * 1.3), 0.08 * sin(t * 1.9));
-        final phase = t % 3.0;
-        final fwd = phase < 0.4 ? (sin(phase / 0.4 * 2 * pi) * 300).round() : 0;
-        acc.add(StreamSample(qw, qx, qy, qz, capture ? n() : fwd + n(), n(), capture ? 1000 + n() : n(), false));
-        if (capture) gyr.add(StreamSample(0x7fff / 16384.0, 0, 0, 0, n(), n(), n(), true));
+      if (capture != _batchCapture) {
+        // Never mix the two formats in one batch.
+        _acc.clear();
+        _gyr.clear();
+        _batchCapture = capture;
       }
-      emitBatch(StreamBatch(t0, acc));
-      if (capture) {
-        emitBatch(StreamBatch(t0, gyr));
-        // 100 Hz = two accel batches per 100 ms.
-        emitBatch(StreamBatch(t0 + 5 * stepUs, acc));
-        emitBatch(StreamBatch(t0 + 5 * stepUs, gyr));
+      var k = _streamNext;
+      for (; k < produced; k += capture ? 1 : 2) {
+        final tUs = _sampleTimeUs(k);
+        if (_acc.isEmpty) _batchT0 = tUs & 0xffffffff;
+        final (a, g) = _sample(tUs / 1e6, capture);
+        _acc.add(a);
+        if (capture) _gyr.add(g);
+        if (_acc.length == StreamBatch.samplesPerBatch) {
+          emitBatch(StreamBatch(_batchT0, List.of(_acc)));
+          if (capture) emitBatch(StreamBatch(_batchT0, List.of(_gyr)));
+          _acc.clear();
+          _gyr.clear();
+        }
       }
+      _streamNext = k;
     });
+  }
+
+  /// One accel sample (quaternion + mg) and its gyro twin, at time [t] s.
+  (StreamSample, StreamSample) _sample(double t, bool capture) {
+    int n() => (_rng.nextDouble() * 40 - 20).round();
+    // A foot that sways a little and slides forward every 3 s, so the live
+    // view has something to show.
+    final (qw, qx, qy, qz) = _quat(0.25 * sin(t * 0.7), 0.15 * sin(t * 1.3), 0.08 * sin(t * 1.9));
+    final phase = t % 3.0;
+    final fwd = phase < 0.4 ? (sin(phase / 0.4 * 2 * pi) * 300).round() : 0;
+    return (
+      StreamSample(qw, qx, qy, qz, capture ? n() : fwd + n(), n(), capture ? 1000 + n() : n(), false),
+      StreamSample(0x7fff / 16384.0, 0, 0, 0, n(), n(), n(), true),
+    );
   }
 
   /// Quaternion for yaw (about z), then pitch (about y), then roll (about x).

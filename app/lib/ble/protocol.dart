@@ -132,6 +132,13 @@ class StreamSample {
 class StreamBatch {
   static const samplesPerBatch = 5;
   static const sampleBytes = 14;
+
+  /// The node's IMU rate (LSM6DS3 ODR, firmware imu.cpp). Capture streams
+  /// every sample, idle and dance every second one. Only a batch's first
+  /// sample carries a time; the rest follow at this spacing.
+  static const imuHz = 104.0;
+  static double sampleUs(Mode mode) => 1e6 / (mode == Mode.capture ? imuHz : imuHz / 2);
+
   final int t0NodeUs;
   final List<StreamSample> samples;
   StreamBatch(this.t0NodeUs, this.samples);

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../ble/protocol.dart';
 import '../models/preset.dart';
+import '../models/session_score.dart' show barOf;
 import '../ui/style.dart';
 
 /// What the step chart shows. The dance screen moves [nowBeat] once a frame
@@ -23,6 +24,11 @@ class StepChartController extends ChangeNotifier {
 
   final _clock = Stopwatch()..start();
   final _hits = <_Hit>[];
+  Verdict? _lastVerdict;
+
+  /// What a screen reader says about the chart: the next step and the last
+  /// verdict. Changes once a step, not once a frame.
+  final spoken = ValueNotifier<String>('');
 
   /// How long a lane wash and a pop label last.
   static const washMs = 250, popMs = 900;
@@ -30,12 +36,33 @@ class StepChartController extends ChangeNotifier {
   void tick(double beat) {
     nowBeat = beat;
     _hits.removeWhere((h) => _clock.elapsedMilliseconds - h.atMs > popMs);
+    _updateSpoken();
     notifyListeners();
   }
 
   void setVerdicts(Map<int, Verdict> v) {
     verdicts = Map.unmodifiable(v);
+    _updateSpoken();
     notifyListeners();
+  }
+
+  void _updateSpoken() {
+    final steps = preset.steps;
+    String? next;
+    for (var i = 0; i < steps.length; i++) {
+      final s = steps[i];
+      if (s.stepClass == StepClass.none || s.beat - nowBeat <= -0.25 || verdicts[i] != null) continue;
+      next = 'Next: ${footName(s.foot).toLowerCase()} foot ${stepLabel(s.stepClass)}, bar ${barOf(s.beat)}';
+      break;
+    }
+    final last = _lastVerdict;
+    spoken.value = [next ?? 'No more steps', if (last != null) 'Last step: ${last.label}'].join('. ');
+  }
+
+  @override
+  void dispose() {
+    spoken.dispose();
+    super.dispose();
   }
 
   /// Flash [foot]'s lane in the verdict colour and pop a label at the now line.
@@ -50,6 +77,8 @@ class StepChartController extends ChangeNotifier {
     if (v == Verdict.extra || v == Verdict.unjudged) return;
     _hits.removeWhere((h) => h.foot == foot);
     _hits.add(_Hit(foot, v, label, _clock.elapsedMilliseconds));
+    _lastVerdict = v;
+    _updateSpoken();
     notifyListeners();
   }
 }
@@ -78,27 +107,37 @@ class StepChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: CustomPaint(
-        painter: _StepChartPainter(
-          c: controller,
-          ahead: beatsVisibleAhead,
-          behind: beatsVisibleBehind,
-          theme: Theme.of(context),
+    return ValueListenableBuilder(
+      valueListenable: controller.spoken,
+      builder: (context, spoken, child) => Semantics(liveRegion: true, label: spoken, child: child),
+      child: RepaintBoundary(
+        child: CustomPaint(
+          painter: _StepChartPainter(
+            c: controller,
+            ahead: beatsVisibleAhead,
+            behind: beatsVisibleBehind,
+            theme: Theme.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+          ),
+          size: Size.infinite,
         ),
-        size: Size.infinite,
       ),
     );
   }
 }
 
 class _StepChartPainter extends CustomPainter {
-  _StepChartPainter({required this.c, required this.ahead, required this.behind, required this.theme})
+  _StepChartPainter(
+      {required this.c, required this.ahead, required this.behind, required this.theme, required this.textScaler})
       : super(repaint: c);
 
   final StepChartController c;
   final double ahead, behind;
   final ThemeData theme;
+
+  /// The user's text size, for the step captions and pop labels (already
+  /// sized from the chart, so it is capped to keep them inside the lane).
+  final TextScaler textScaler;
 
   static const _gap = 10.0;
 
@@ -149,7 +188,7 @@ class _StepChartPainter extends CustomPainter {
       if (age > StepChartController.washMs) continue;
       final rect = lanes[h.foot.index].$2;
       canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(20)),
-          Paint()..color = h.verdict.color.withValues(alpha: 0.28 * (1 - age / StepChartController.washMs)));
+          Paint()..color = h.verdict.fill.withValues(alpha: 0.28 * (1 - age / StepChartController.washMs)));
     }
 
     // Steps scroll under the header: clip them to the body.
@@ -167,7 +206,8 @@ class _StepChartPainter extends CustomPainter {
     }
 
     // 3. Captions, above upcoming steps only (they never cross the now line).
-    final captionSize = (r * 0.42).clamp(13.0, 28.0);
+    final scaler = textScaler.clamp(maxScaleFactor: 1.6);
+    final captionSize = scaler.scale((r * 0.42).clamp(13.0, 28.0));
     for (final (i, s, dBeat) in visible) {
       if (dBeat <= 0.15) continue;
       final cx = laneX(s.foot) + laneW / 2;
@@ -187,7 +227,7 @@ class _StepChartPainter extends CustomPainter {
       final rr = isNext ? r * 1.15 : r;
       final Color fill;
       if (v != null && v != Verdict.unjudged) {
-        fill = v.color;
+        fill = v.fill;
       } else if (dBeat < -0.25) {
         fill = Color.lerp(scheme.primary, scheme.surface, 0.6)!; // passed, no verdict yet
       } else {
@@ -204,10 +244,10 @@ class _StepChartPainter extends CustomPainter {
             Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = 3
-              ..color = Colors.white.withValues(alpha: 0.7));
+              ..color = onColor(fill).withValues(alpha: 0.7));
       }
       final icon = stepIcon(s.stepClass, s.foot);
-      if (icon != null) _icon(canvas, icon, Offset(cx, cy), rr * 1.25, Colors.white);
+      if (icon != null) _icon(canvas, icon, Offset(cx, cy), rr * 1.25, onColor(fill));
     }
     canvas.restore();
 
@@ -225,7 +265,7 @@ class _StepChartPainter extends CustomPainter {
     }
 
     // 6. Pop labels: what the last verdict in each lane was, big.
-    final popSize = (laneW * 0.11).clamp(22.0, 52.0);
+    final popSize = min(scaler.scale((laneW * 0.11).clamp(22.0, 52.0)), laneW * 0.16);
     for (final h in c._hits) {
       final t = (nowMs - h.atMs) / StepChartController.popMs;
       if (t > 1) continue;
@@ -253,7 +293,7 @@ class _StepChartPainter extends CustomPainter {
       canvas.drawRRect(RRect.fromRectAndRadius(pillRect.inflate(4), Radius.circular(pill.height / 2 + 4)),
           Paint()..color = Colors.white.withValues(alpha: alpha));
       canvas.drawRRect(RRect.fromRectAndRadius(pillRect, Radius.circular(pill.height / 2)),
-          Paint()..color = h.verdict.color.withValues(alpha: alpha));
+          Paint()..color = h.verdict.fill.withValues(alpha: alpha));
       if (tp == null) {
         _icon(canvas, Icons.check_rounded, Offset.zero, popSize * 1.3, Colors.white.withValues(alpha: alpha));
       } else {
@@ -309,5 +349,5 @@ class _StepChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_StepChartPainter old) =>
-      old.c != c || old.ahead != ahead || old.behind != behind || old.theme != theme;
+      old.c != c || old.ahead != ahead || old.behind != behind || old.theme != theme || old.textScaler != textScaler;
 }

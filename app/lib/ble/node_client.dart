@@ -64,12 +64,19 @@ class NotADanceNode implements Exception {
   String toString() => message;
 }
 
+/// Wait before reconnect attempt [attempt] (0-based) after a drop: 0.5 s,
+/// doubling, at most [cap].
+Duration reconnectDelay(int attempt, {Duration cap = const Duration(seconds: 5)}) {
+  final ms = 500 * (1 << attempt.clamp(0, 16));
+  return ms < cap.inMilliseconds ? Duration(milliseconds: ms) : cap;
+}
+
 /// A real node over Bluetooth LE.
 class BleNodeClient extends NodeClient {
-  BleNodeClient(super.role);
+  BleNodeClient(super.role, {this.reconnectCap = const Duration(seconds: 5)});
 
-  /// Retries after an unexpected drop, 2 s apart.
-  static const _reconnectTries = 5;
+  /// Longest wait between reconnect attempts after an unexpected drop.
+  final Duration reconnectCap;
 
   BluetoothDevice? _device;
   BluetoothCharacteristic? _timeSync, _schedule, _control;
@@ -81,6 +88,7 @@ class BleNodeClient extends NodeClient {
 
   /// False once the app disconnects on purpose: no automatic reconnect then.
   bool _wanted = false;
+  bool _reconnecting = false;
   Future<void>? _connecting;
 
   @override
@@ -151,19 +159,27 @@ class BleNodeClient extends NodeClient {
     if (s == BluetoothConnectionState.disconnected && _wanted) unawaited(_reconnect());
   }
 
-  /// After an unexpected drop, try to get the node back a few times.
+  /// After an unexpected drop, keep trying to get the node back, with
+  /// backoff, until it is back or the app lets it go ([disconnect]). A dancer
+  /// who walked out of range for a minute gets the node back on return.
   Future<void> _reconnect() async {
     final device = _device;
-    if (device == null) return;
-    for (var i = 0; i < _reconnectTries; i++) {
-      await Future<void>.delayed(const Duration(seconds: 2));
-      if (!_wanted || connected || _connecting != null || _device != device) return;
-      try {
-        await connect(device);
-        return;
-      } catch (_) {
-        // Still out of range: try again.
+    if (device == null || _reconnecting) return;
+    _reconnecting = true;
+    try {
+      for (var i = 0;; i++) {
+        await Future<void>.delayed(reconnectDelay(i, cap: reconnectCap));
+        if (!_wanted || connected || _device != device) return;
+        try {
+          // A connect already under way (a manual scan) counts as this attempt.
+          await (_connecting ?? connect(device));
+          if (connected) return;
+        } catch (_) {
+          // Still out of range: try again.
+        }
       }
+    } finally {
+      _reconnecting = false;
     }
   }
 
@@ -276,7 +292,7 @@ class NodeManager extends ChangeNotifier {
   Future<int> scanAndConnect() async {
     if (fake) {
       for (final n in nodes) {
-        await (n as FakeNodeClient).connect();
+        if (!n.connected) await (n as FakeNodeClient).connect();
       }
       return connectedNodes.length;
     }

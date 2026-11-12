@@ -22,7 +22,9 @@ class DanceTrainerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: fakeNodes ? 'Dance Trainer (simulated nodes)' : 'Dance Trainer',
-      theme: _theme(),
+      theme: _theme(Brightness.light),
+      darkTheme: _theme(Brightness.dark),
+      themeMode: ThemeMode.system,
       // Android 15 draws apps edge to edge; keep every screen's bottom buttons
       // clear of the navigation bar (the app bars already handle the top).
       builder: (context, child) => SafeArea(top: false, child: child!),
@@ -32,8 +34,8 @@ class DanceTrainerApp extends StatelessWidget {
 
   /// Calm Material 3: flat tinted cards, rounded buttons with larger labels so
   /// they read from a couple of metres on a tablet.
-  static ThemeData _theme() {
-    final base = ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true);
+  static ThemeData _theme(Brightness brightness) {
+    final base = ThemeData(colorSchemeSeed: Colors.indigo, brightness: brightness, useMaterial3: true);
     const label = TextStyle(fontSize: 17, fontWeight: FontWeight.w600);
     final rounded = RoundedRectangleBorder(borderRadius: BorderRadius.circular(16));
     return base.copyWith(

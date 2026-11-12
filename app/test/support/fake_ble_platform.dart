@@ -19,6 +19,9 @@ final class FakeBlePlatform extends FlutterBluePlusPlatform {
   bool adapterOn = true;
   final connectCalls = <String>[];
 
+  /// False: the nodes are out of range, so a connect attempt fails.
+  bool inRange = true;
+
   /// Role each device id reports in Status.
   final roles = <String, Role>{};
 
@@ -49,6 +52,7 @@ final class FakeBlePlatform extends FlutterBluePlusPlatform {
   /// instance and reset it between tests.
   void reset() {
     adapterOn = true;
+    inRange = true;
     connectCalls.clear();
     roles.clear();
     dropSyncReplies = 0;
@@ -82,7 +86,7 @@ final class FakeBlePlatform extends FlutterBluePlusPlatform {
   @override
   Future<bool> connect(BmConnectRequest r) async {
     connectCalls.add(r.remoteId.str);
-    scheduleMicrotask(() => setConnected(r.remoteId, true));
+    scheduleMicrotask(() => setConnected(r.remoteId, inRange));
     return true;
   }
 

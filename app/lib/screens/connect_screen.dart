@@ -159,13 +159,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
   Widget _nodeCard(NodeClient n) {
     final st = n.status;
     final theme = Theme.of(context);
-    const warn = Color(0xFFE65100);
+    final warn = warnColor(context);
     final calPill = switch (st) {
       null || Status(calFlags: null) => null,
-      Status(boardMoved: true) => const StatusPill(icon: Icons.error_outline, text: 'Board moved', color: warn),
-      Status(knowsForward: true) => StatusPill(icon: Icons.check_circle, text: 'Calibrated', color: Verdict.correct.color),
-      Status(calibrated: true) => const StatusPill(icon: Icons.error_outline, text: 'Tilt only', color: warn),
-      _ => const StatusPill(icon: Icons.error_outline, text: 'Needs calibration', color: warn),
+      Status(boardMoved: true) => StatusPill(icon: Icons.error_outline, text: 'Board moved', color: warn),
+      Status(knowsForward: true) => StatusPill(icon: Icons.check_circle, text: 'Calibrated', color: okColor(context)),
+      Status(calibrated: true) => StatusPill(icon: Icons.error_outline, text: 'Tilt only', color: warn),
+      _ => StatusPill(icon: Icons.error_outline, text: 'Needs calibration', color: warn),
     };
     return Card(
       margin: const EdgeInsets.only(bottom: 12),

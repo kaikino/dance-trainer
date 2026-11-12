@@ -91,7 +91,10 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return AlertDialog(
+      // Scrolls in phone landscape and at large text sizes.
+      scrollable: true,
       title: const Text('Sync sound to the screen'),
       content: SizedBox(
         width: 420,
@@ -130,18 +133,24 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
               ),
             const SizedBox(height: 16),
             Text('Sound delay: $_manual ms${_result != null ? ' (measured)' : ''}',
-                style: Theme.of(context).textTheme.titleSmall),
-            Slider(
-              value: _manual.toDouble(),
-              min: 0,
-              max: 600,
-              divisions: 60,
-              label: '$_manual ms',
-              onChanged: _running ? null : (v) => setState(() => _manual = v.round()),
+                style: theme.textTheme.titleSmall),
+            MergeSemantics(
+              child: Semantics(
+                label: 'Sound delay',
+                child: Slider(
+                  semanticFormatterCallback: (v) => '${v.round()} milliseconds',
+                  value: _manual.toDouble(),
+                  min: 0,
+                  max: 600,
+                  divisions: 60,
+                  label: '$_manual ms',
+                  onChanged: _running ? null : (v) => setState(() => _manual = v.round()),
+                ),
+              ),
             ),
-            const Text('If steps still reach the line before you hear the beat, raise it; '
+            Text('If steps still reach the line before you hear the beat, raise it; '
                 'if after, lower it.',
-                style: TextStyle(color: Colors.grey)),
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
           ],
         ),
       ),

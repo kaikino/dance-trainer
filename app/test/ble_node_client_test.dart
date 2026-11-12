@@ -81,4 +81,30 @@ void main() {
     await (m.left as BleNodeClient).disconnect();
     await (m.right as BleNodeClient).disconnect();
   });
+
+  test('reconnect waits double from 0.5 s up to the cap', () {
+    expect([for (var i = 0; i < 6; i++) reconnectDelay(i).inMilliseconds], [500, 1000, 2000, 4000, 5000, 5000]);
+    expect(reconnectDelay(1000), const Duration(seconds: 5));
+    expect(reconnectDelay(3, cap: const Duration(seconds: 1)), const Duration(seconds: 1));
+  });
+
+  test('a node out of range for many attempts still comes back', () async {
+    final node = BleNodeClient(Role.left, reconnectCap: const Duration(milliseconds: 100));
+    await node.connect(BluetoothDevice(remoteId: leftId));
+    p.inRange = false;
+    p.setConnected(leftId, false);
+    // Long enough for well over the five tries the old code gave up after.
+    await Future<void>.delayed(const Duration(seconds: 2));
+    expect(node.connected, isFalse);
+    expect(p.connectCalls.length, greaterThan(10));
+    p.inRange = true;
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    expect(node.connected, isTrue);
+
+    // Disconnecting on purpose stops the retries.
+    await node.disconnect();
+    final calls = p.connectCalls.length;
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    expect(p.connectCalls.length, calls);
+  });
 }

@@ -287,14 +287,21 @@ class _PresetScreenState extends State<PresetScreen> {
                 style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
           ],
         ),
-        Slider(
-          value: _tempo,
-          min: 0.6,
-          max: 1.2,
-          divisions: 12,
-          label: bpm == null ? '${(_tempo * 100).round()}%' : '$bpm bpm',
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          onChanged: (v) => setState(() => _tempo = v),
+        MergeSemantics(
+          child: Semantics(
+            label: 'Tempo',
+            child: Slider(
+              semanticFormatterCallback: (v) =>
+                  '${_selected == null ? '' : '${(_selected!.bpm * v).round()} bpm, '}${(v * 100).round()}% speed',
+              value: _tempo,
+              min: 0.6,
+              max: 1.2,
+              divisions: 12,
+              label: bpm == null ? '${(_tempo * 100).round()}%' : '$bpm bpm',
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              onChanged: (v) => setState(() => _tempo = v),
+            ),
+          ),
         ),
       ],
     );

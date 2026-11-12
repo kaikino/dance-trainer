@@ -41,14 +41,38 @@ IconData? stepIcon(StepClass c, Role foot) {
 }
 
 /// Colour, name and icon for each verdict. Pending steps use the theme's primary.
+///
+/// Two colour roles, so each reads in light and dark themes:
+/// - [fill]: a solid background under white text and icons (chart footprints,
+///   pop labels). The same in both themes.
+/// - [ink]: text and icons on the theme's own surfaces: deep shades on light,
+///   light tints on dark, each at least 4.5:1 against the surface.
 extension VerdictStyle on Verdict {
-  Color get color => switch (this) {
+  Color get fill => switch (this) {
         Verdict.correct => const Color(0xFF2E7D32), // green 800
         Verdict.wrongStep => const Color(0xFFC62828), // red 800
         Verdict.offBeat => const Color(0xFFE65100), // orange 900: reads as amber, white text stays legible
         Verdict.missed => const Color(0xFF546E7A), // slate: apart from the indigo of pending steps and from "empty"
-        Verdict.extra || Verdict.unjudged => const Color(0xFF9E9E9E),
+        Verdict.extra || Verdict.unjudged => const Color(0xFF757575),
       };
+
+  Color inkFor(Brightness b) => b == Brightness.dark
+      ? switch (this) {
+          Verdict.correct => const Color(0xFF81C784),
+          Verdict.wrongStep => const Color(0xFFEF9A9A),
+          Verdict.offBeat => const Color(0xFFFFB74D),
+          Verdict.missed => const Color(0xFFB0BEC5),
+          Verdict.extra || Verdict.unjudged => const Color(0xFFBDBDBD),
+        }
+      : switch (this) {
+          Verdict.correct => const Color(0xFF1B5E20),
+          Verdict.wrongStep => const Color(0xFFB71C1C),
+          Verdict.offBeat => const Color(0xFFB54708),
+          Verdict.missed => const Color(0xFF455A64),
+          Verdict.extra || Verdict.unjudged => const Color(0xFF616161),
+        };
+
+  Color ink(BuildContext context) => inkFor(Theme.of(context).brightness);
 
   String get label => switch (this) {
         Verdict.correct => 'correct',
@@ -71,9 +95,55 @@ extension VerdictStyle on Verdict {
 /// The verdicts a dancer is scored on, in display order.
 const scoredVerdicts = [Verdict.correct, Verdict.wrongStep, Verdict.offBeat, Verdict.missed];
 
-/// Accuracy band colour: green from 85%, amber from 60%, else red.
-Color accuracyColor(double acc) =>
-    acc >= 0.85 ? Verdict.correct.color : (acc >= 0.6 ? Verdict.offBeat.color : Verdict.wrongStep.color);
+/// The scored verdict with the longest label, to size a row of tiles by.
+final widestVerdict = scoredVerdicts.reduce((a, b) => a.label.length >= b.label.length ? a : b);
+
+/// [child], laid out at least as large as [sizer] (drawn invisibly). In a
+/// row of equal tiles, each FittedBox then scales its content by the same
+/// factor, so a short label is not drawn bigger than a long one.
+class SizedLike extends StatelessWidget {
+  const SizedLike({super.key, required this.sizer, required this.child, this.alignment = Alignment.center});
+  final Widget sizer, child;
+  final AlignmentGeometry alignment;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+        alignment: alignment,
+        children: [ExcludeSemantics(child: Visibility.maintain(visible: false, child: sizer)), child],
+      );
+}
+
+/// Accuracy band colour (ink): green from 85%, amber from 60%, else red.
+Color accuracyColor(BuildContext context, double acc) =>
+    (acc >= 0.85 ? Verdict.correct : (acc >= 0.6 ? Verdict.offBeat : Verdict.wrongStep)).ink(context);
+
+/// Status text and icons on the theme's surfaces: all good, and needs attention.
+Color okColor(BuildContext context) => Verdict.correct.ink(context);
+Color warnColor(BuildContext context) => Verdict.offBeat.ink(context);
+
+/// Black or white, whichever reads on [background] (icons on filled circles).
+Color onColor(Color background) => background.computeLuminance() > 0.4 ? Colors.black87 : Colors.white;
+
+/// A column that fills the screen when it fits and scrolls when it does not
+/// (phone landscape, large text). [Spacer]s in [child] share the spare height.
+/// [child] is measured by its intrinsic height, so it must not contain a
+/// LayoutBuilder.
+class FillScrollView extends StatelessWidget {
+  const FillScrollView({super.key, required this.child, this.padding = EdgeInsets.zero});
+  final Widget child;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, c) => SingleChildScrollView(
+          padding: padding,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: max(0, c.maxHeight - padding.vertical)),
+            child: IntrinsicHeight(child: child),
+          ),
+        ),
+      );
+}
 
 /// Centres content and keeps it at a readable width on a tablet.
 class ContentWidth extends StatelessWidget {
@@ -185,7 +255,7 @@ class ScoreRing extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final v = value;
-    final color = v == null ? theme.colorScheme.outline : accuracyColor(v);
+    final color = v == null ? theme.colorScheme.outline : accuracyColor(context, v);
     return SizedBox.square(
       dimension: size,
       child: Stack(
@@ -246,7 +316,7 @@ class StepPatternPreview extends StatelessWidget {
             ),
             child: icon == null
                 ? null
-                : FittedBox(child: Padding(padding: const EdgeInsets.all(4), child: Icon(icon, color: Colors.white))),
+                : FittedBox(child: Padding(padding: const EdgeInsets.all(4), child: Icon(icon, color: onColor(c)))),
           ),
         ),
       );

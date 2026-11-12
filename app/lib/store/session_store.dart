@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../ble/clock_sync.dart';
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
 import '../models/preset.dart';
@@ -14,7 +15,8 @@ class RecordedEvent {
   final Role foot;
   final StepEvent ev;
 
-  /// Strike time on the app clock (ms since epoch, wrap-safe), for ordering.
+  /// Strike time on the app clock (ms since epoch, wrap-safe); null if the
+  /// node was not synced yet.
   final double? tAppMs;
   int labelClass;
   String labelSource;
@@ -52,8 +54,18 @@ class SessionRecorder {
   /// Per node: clock offset and firmware, noted after each clock sync so the
   /// metadata survives the node dropping out before the end.
   final _nodeMeta = <Role, Map<String, Object?>>{};
-  void noteNode(NodeClient n) =>
-      _nodeMeta[n.role] = {'offset_us': n.offsetUs, 'fw_version': n.status?.fwVersion};
+
+  /// Every clock sync, in order: a node that reconnects (and maybe rebooted)
+  /// gets a new offset, and the earlier rows were timed with the old one.
+  final _syncs = <Map<String, Object?>>[];
+
+  void noteNode(NodeClient n) {
+    final meta = {'offset_us': n.offsetUs, 'fw_version': n.status?.fwVersion};
+    _nodeMeta[n.role] = meta;
+    final last = _syncs.lastWhere((s) => s['foot'] == n.roleLabel, orElse: () => const {});
+    if (n.offsetUs == null || last['offset_us'] == n.offsetUs) return;
+    _syncs.add({'foot': n.roleLabel, ...meta, 'synced_at_app_ms': DateTime.now().millisecondsSinceEpoch});
+  }
 
   /// Stream samples written per node, for the capture screen.
   final sampleCounts = <Role, int>{};
@@ -63,11 +75,13 @@ class SessionRecorder {
   final events = <RecordedEvent>[];
   final _subs = <StreamSubscription<dynamic>>[];
   final _sinks = <Role, IOSink>{};
-  // Capture mode interleaves an accel batch and a gyro batch with the same t0;
-  // rows wait here until both halves have arrived.
-  final _pending = <Role, Map<int, List<List<num?>>>>{};
 
-  int get sampleMs => mode == Mode.capture ? 10 : 20;
+  // Capture mode sends an accel batch and a gyro batch with the same t0; the
+  // first half waits here for the second.
+  final _pending = <Role, Map<int, StreamBatch>>{};
+
+  /// Spacing of the samples in a batch, µs.
+  double get sampleUs => StreamBatch.sampleUs(mode);
 
   Future<void> begin() async {
     _begun = true;
@@ -87,60 +101,73 @@ class SessionRecorder {
     }
   }
 
-  void _onBatch(NodeClient n, StreamBatch b) {
-    final role = n.role;
-    _sinks.putIfAbsent(role, () {
-      final sink = File('${dir.path}/${n.roleLabel}.csv').openWrite();
-      sink.writeln('t_node_us,ax,ay,az,gx,gy,gz,qw,qx,qy,qz');
-      return sink;
-    });
-    final pend = _pending.putIfAbsent(role, () => {});
-    final rows = pend.putIfAbsent(b.t0NodeUs, () => List.generate(StreamBatch.samplesPerBatch, (i) {
-          final t = b.t0NodeUs + i * sampleMs * 1000;
-          return <num?>[t, null, null, null, null, null, null, null, null, null, null];
-        }));
-    for (var i = 0; i < b.samples.length; i++) {
-      final s = b.samples[i];
-      if (s.isGyro) {
-        rows[i][4] = s.ax; rows[i][5] = s.ay; rows[i][6] = s.az;
-      } else {
-        rows[i][1] = s.ax; rows[i][2] = s.ay; rows[i][3] = s.az;
-        rows[i][7] = (s.qw * 16384).round(); rows[i][8] = (s.qx * 16384).round();
-        rows[i][9] = (s.qy * 16384).round(); rows[i][10] = (s.qz * 16384).round();
-      }
-    }
-    final complete = mode != Mode.capture || (rows[0][1] != null && rows[0][4] != null);
-    if (complete) {
-      _flush(role, rows);
-      pend.remove(b.t0NodeUs);
-    }
-    // Drop half-batches older than a second so a lost notify does not leak.
-    pend.removeWhere((t0, r) {
-      final stale = b.t0NodeUs - t0 > 1000000;
-      if (stale) _flush(role, r);
-      return stale;
-    });
+  /// App time (ms since epoch) of node time [tNodeUs], or null before the
+  /// node's clock is synced. Resolved against now, so the node's clock wrap
+  /// and a reconnect (new offset) are both handled.
+  static double? _appMs(NodeClient n, int tNodeUs) {
+    final offset = n.offsetUs;
+    if (offset == null) return null;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return now + nodeMsAfter(tNodeUs, now, offset);
   }
 
-  void _flush(Role role, List<List<num?>> rows) {
-    final sink = _sinks[role];
-    if (sink == null) return;
-    sampleCounts.update(role, (c) => c + rows.length, ifAbsent: () => rows.length);
-    for (final r in rows) {
-      sink.writeln(r.map((v) => v == null ? '' : (v is double ? v.toStringAsFixed(4) : '$v')).join(','));
+  void _onBatch(NodeClient n, StreamBatch b) {
+    if (mode != Mode.capture) {
+      if (!b.samples.first.isGyro) _write(n, b, null);
+      return;
     }
+    // Capture: rows need both halves. A half with no partner (an idle-mode
+    // accel batch before Start or after Stop, or a lost notification) is
+    // dropped, never written with empty columns.
+    final pend = _pending.putIfAbsent(n.role, () => {});
+    final other = pend.remove(b.t0NodeUs);
+    if (other != null && other.samples.first.isGyro != b.samples.first.isGyro) {
+      final (acc, gyr) = b.samples.first.isGyro ? (other, b) : (b, other);
+      _write(n, acc, gyr);
+    } else {
+      pend[b.t0NodeUs] = b;
+    }
+    pend.removeWhere((t0, _) => u32DeltaUs(b.t0NodeUs, t0) > 1000000);
+  }
+
+  /// Writes one batch as rows; [gyr] is null outside capture. Rows from a
+  /// node whose clock is not synced yet (just reconnected) are skipped:
+  /// they could not be placed on the session's timeline.
+  void _write(NodeClient n, StreamBatch acc, StreamBatch? gyr) {
+    final appT0 = _appMs(n, acc.t0NodeUs);
+    if (appT0 == null) return;
+    final sink = _sinks.putIfAbsent(n.role, () {
+      final sink = File('${dir.path}/${n.roleLabel}.csv').openWrite();
+      sink.writeln('t_node_us,ax,ay,az,gx,gy,gz,qw,qx,qy,qz,t_app_ms');
+      return sink;
+    });
+    int q(double v) => (v * 16384).round();
+    for (var i = 0; i < acc.samples.length; i++) {
+      final dtUs = (i * sampleUs).round();
+      final a = acc.samples[i];
+      final g = gyr?.samples[i];
+      sink.writeln([
+        (acc.t0NodeUs + dtUs) & 0xffffffff,
+        a.ax, a.ay, a.az,
+        ...g == null ? ['', '', ''] : [g.ax, g.ay, g.az],
+        q(a.qw), q(a.qx), q(a.qy), q(a.qz),
+        (appT0 + dtUs / 1000).toStringAsFixed(1),
+      ].join(','));
+    }
+    sampleCounts.update(n.role, (c) => c + acc.samples.length, ifAbsent: () => acc.samples.length);
   }
 
   void _onEvent(NodeClient n, StepEvent e) {
     final role = n.role;
     var label = -1;
     var source = '';
+    final tAppMs = _appMs(n, e.tStrikeNodeUs);
     // Against the current segment: a resume after a pause restarts the clock.
     final seg = segments.lastOrNull;
-    final msAfter = seg == null || n.offsetUs == null ? null : n.msAfter(e.tStrikeNodeUs, seg.t0AppMs);
-    if (mode == Mode.capture && msAfter != null) {
+    if (mode == Mode.capture && seg != null && tAppMs != null) {
       // Label from the schedule: nearest scheduled beat for this foot within 250 ms.
-      final beatMs = 60000 / seg!.bpm;
+      final msAfter = tAppMs - seg.t0AppMs;
+      final beatMs = 60000 / seg.bpm;
       PresetStep? best;
       var bestErr = double.infinity;
       for (final s in preset.steps.where((s) => s.foot == role)) {
@@ -155,7 +182,7 @@ class SessionRecorder {
         source = 'capture';
       }
     }
-    events.add(RecordedEvent(role, e, msAfter == null ? null : seg!.t0AppMs + msAfter, label, source));
+    events.add(RecordedEvent(role, e, tAppMs, label, source));
   }
 
   /// Writes events.csv and session.json. Safe to call twice; a no-op before [begin].
@@ -165,23 +192,21 @@ class SessionRecorder {
     for (final s in _subs) {
       await s.cancel();
     }
-    for (final e in _pending.entries) {
-      for (final rows in e.value.values) {
-        _flush(e.key, rows);
-      }
-    }
+    _pending.clear(); // halves whose partner never came
     for (final s in _sinks.values) {
       await s.flush();
       await s.close();
     }
     final ev = File('${dir.path}/events.csv').openWrite();
-    ev.writeln('t_strike_node_us,foot,step_class,confidence,expected_class,timing_err_ms,verdict,label_class,label_source');
+    ev.writeln('t_strike_node_us,foot,step_class,confidence,expected_class,timing_err_ms,verdict,label_class,'
+        'label_source,t_app_ms');
     // By app time, not the raw node clock, which wraps every 71.6 min.
     events.sort((a, b) => (a.tAppMs ?? 0).compareTo(b.tAppMs ?? 0));
     for (final r in events) {
       final e = r.ev;
       ev.writeln('${e.tStrikeNodeUs},${r.foot == Role.left ? 'L' : 'R'},${e.stepClass.index},${e.confidence},'
-          '${e.expectedClass.index},${e.timingErrMs},${e.verdict.index},${r.labelClass},${r.labelSource}');
+          '${e.expectedClass.index},${e.timingErrMs},${e.verdict.index},${r.labelClass},${r.labelSource},'
+          '${r.tAppMs?.toStringAsFixed(1) ?? ''}');
     }
     await ev.flush();
     await ev.close();
@@ -197,11 +222,13 @@ class SessionRecorder {
       'segments': [
         for (final g in segments) {'from_beat': g.fromBeat, 't0_app_ms': g.t0AppMs, 'bpm': g.bpm},
       ],
+      // The last offset per node; clock_syncs lists every one (a reconnect adds one).
       'nodes': {
         for (final n in nodes.nodes)
           if (n.connected) n.roleLabel: {'offset_us': n.offsetUs, 'fw_version': n.status?.fwVersion}
           else if (_nodeMeta[n.role] case final meta?) n.roleLabel: meta,
       },
+      'clock_syncs': _syncs,
       'app_version': appVersion,
       'protocol_version': protocolVersion,
     };

@@ -82,7 +82,9 @@ class SummaryScreen extends StatelessWidget {
             Text(preset.name, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
             Wrap(spacing: 8, runSpacing: 8, children: [
-              StatusPill(icon: Icons.speed_rounded, text: '${preset.bpm.round()} bpm'),
+              StatusPill(
+                  icon: Icons.speed_rounded,
+                  text: tempoLabel([for (final g in recorder.segments) g.bpm], fallback: preset.bpm)),
               StatusPill(icon: kind.icon, text: kind.title, color: theme.colorScheme.primary),
             ]),
           ],
@@ -136,8 +138,15 @@ class SummaryScreen extends StatelessWidget {
     );
     final facts = [
       _Fact(Icons.done_all_rounded, '${score.judged}/${preset.steps.length}', 'steps judged'),
-      _Fact(Icons.timer_outlined, meanErr == null ? '–' : '${meanErr >= 0 ? '+' : ''}${meanErr.round()} ms',
-          meanErr == null ? 'timing' : (meanErr >= 0 ? 'late on average' : 'early on average')),
+      _Fact(
+          Icons.timer_outlined,
+          meanErr == null ? '–' : '${meanErr.round() > 0 ? '+' : ''}${meanErr.round()} ms',
+          switch (meanErr?.round()) {
+            null => 'timing',
+            0 => 'on the beat on average',
+            > 0 => 'late on average',
+            _ => 'early on average',
+          }),
       if (practice) ...[
         _Fact(Icons.verified_rounded, acc == null ? '–' : '${(acc * 100).round()}%', 'after retries'),
         _Fact(Icons.replay_rounded, '${score.rewinds}', score.rewinds == 1 ? 'rewind' : 'rewinds'),
@@ -211,7 +220,7 @@ class SummaryScreen extends StatelessWidget {
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             leading: Icon(score.judged == 0 ? Icons.info_outline_rounded : Icons.celebration_rounded,
-                color: score.judged == 0 ? null : Verdict.correct.color, size: 32),
+                color: score.judged == 0 ? null : okColor(context), size: 32),
             title: Text(score.judged == 0 ? 'No steps were judged.' : 'No mistakes. Clean run!',
                 style: theme.textTheme.titleMedium),
           ),
@@ -295,6 +304,14 @@ class SummaryScreen extends StatelessWidget {
   }
 }
 
+/// The session's tempo: "96 bpm", or "96 → 77 bpm" when Practice slowed it
+/// down. [bpms] is one per segment, in order; [fallback] when there is none.
+String tempoLabel(List<double> bpms, {required double fallback}) {
+  final first = (bpms.firstOrNull ?? fallback).round();
+  final last = (bpms.lastOrNull ?? fallback).round();
+  return first == last ? '$first bpm' : '$first → $last bpm';
+}
+
 /// An icon, a big value and what it means: on one line, or the meaning under
 /// the value where the line is short (phone).
 class _Fact extends StatelessWidget {
@@ -334,22 +351,32 @@ class _VerdictTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = count == 0 ? theme.colorScheme.onSurfaceVariant : verdict.color;
-    return Card(
-      color: count == 0 ? null : verdict.color.withValues(alpha: 0.1),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Row(
-            children: [
-              Text('$count',
-                  style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800, color: color)),
-              const SizedBox(width: 10),
-              Icon(verdict.icon, color: color, size: 20),
-              const SizedBox(width: 4),
-              Text(verdict.label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 16)),
-            ],
+    final ink = verdict.ink(context);
+    final color = count == 0 ? theme.colorScheme.onSurfaceVariant : ink;
+    Widget content(String n, Verdict v) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(n, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800, color: color)),
+            const SizedBox(width: 10),
+            Icon(v.icon, color: color, size: 20),
+            const SizedBox(width: 4),
+            Text(v.label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 16)),
+          ],
+        );
+    return Semantics(
+      label: '$count ${verdict.label}',
+      excludeSemantics: true,
+      child: Card(
+        color: count == 0 ? null : Color.alphaBlend(ink.withValues(alpha: 0.12), theme.colorScheme.surfaceContainer),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SizedLike(
+              alignment: AlignmentDirectional.centerStart,
+              sizer: content('0', widestVerdict),
+              child: content('$count', verdict),
+            ),
           ),
         ),
       ),
@@ -372,7 +399,7 @@ class _MistakeRow extends StatelessWidget {
       leading: CircleAvatar(
         radius: 22,
         backgroundColor: theme.colorScheme.primary,
-        foregroundColor: Colors.white,
+        foregroundColor: theme.colorScheme.onPrimary,
         child: icon == null ? null : Icon(icon),
       ),
       title: Text('${footName(group.foot)} foot, ${stepLabel(group.step)}',
@@ -384,7 +411,7 @@ class _MistakeRow extends StatelessWidget {
           runSpacing: 4,
           children: [
             for (final v in scoredVerdicts)
-              if (group.byVerdict[v] case final n?) StatusPill(icon: v.icon, text: '$n ${v.label}', color: v.color),
+              if (group.byVerdict[v] case final n?) StatusPill(icon: v.icon, text: '$n ${v.label}', color: v.ink(context)),
           ],
         ),
       ),
