@@ -1,4 +1,7 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
@@ -37,7 +40,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
   Future<void> _scan() async {
     setState(() => _scanning = true);
     try {
-      await m.scanAndConnect();
+      final found = await m.scanAndConnect();
+      if (found == 0) _snack('No nodes found. Check that both are switched on and close by, then scan again.');
+    } on BleUnavailable catch (e) {
+      _snack(e.message,
+          action: e.adapterOff && Platform.isAndroid
+              ? SnackBarAction(label: 'Turn on', onPressed: () => FlutterBluePlus.turnOn().catchError((_) {}))
+              : null);
     } catch (e) {
       _snack('Scan failed: $e');
     } finally {
@@ -56,7 +65,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
   void _openLiveView() =>
       Navigator.push(context, MaterialPageRoute(builder: (_) => LiveViewScreen(manager: m)));
 
-  void _snack(String s) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
+  void _snack(String s, {SnackBarAction? action}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s), action: action));
+  }
 
   /// Calibrated well enough to judge directions (old firmware cannot say: assume so).
   static bool _calibrated(NodeClient n) {

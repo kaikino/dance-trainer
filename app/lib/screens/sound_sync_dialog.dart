@@ -32,6 +32,7 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
   bool _running = false;
   int? _result;
   int _manual = AppSettings.audioDelayMs;
+  Timer? _tick;
 
   double get _beatMs => 60000 / _bpm;
 
@@ -43,11 +44,10 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
     });
     await _clock.prepare();
     await _clock.start();
-    _clock.addListener(_onTick);
-  }
-
-  void _onTick() {
-    if (_running && _clock.finished) _finish();
+    _tick?.cancel();
+    _tick = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (_running && _clock.finished) _finish();
+    });
   }
 
   void _tap() {
@@ -62,7 +62,7 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
   }
 
   Future<void> _finish() async {
-    _clock.removeListener(_onTick);
+    _tick?.cancel();
     await _clock.stop();
     if (!mounted) return;
     setState(() {
@@ -84,7 +84,7 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
 
   @override
   void dispose() {
-    _clock.removeListener(_onTick);
+    _tick?.cancel();
     _clock.dispose();
     super.dispose();
   }

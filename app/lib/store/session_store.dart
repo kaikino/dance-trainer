@@ -13,9 +13,12 @@ import '../models/preset.dart';
 class RecordedEvent {
   final Role foot;
   final StepEvent ev;
+
+  /// Strike time on the app clock (ms since epoch, wrap-safe), for ordering.
+  final double? tAppMs;
   int labelClass;
   String labelSource;
-  RecordedEvent(this.foot, this.ev, this.labelClass, this.labelSource);
+  RecordedEvent(this.foot, this.ev, this.tAppMs, this.labelClass, this.labelSource);
 }
 
 /// Records one session to a folder in the app's documents directory, in the
@@ -39,10 +42,21 @@ class SessionRecorder {
   /// Wall-clock time of beat 1 for the first segment.
   int? get t0AppMs => segments.isEmpty ? null : segments.first.t0AppMs;
 
-  /// One entry per start of the nodes: a practice rewind adds a segment that
-  /// restarts at [fromBeat] with its own t0.
-  final segments = <({double fromBeat, int t0AppMs})>[];
-  void addSegment(int t0AppMs, {double fromBeat = 1}) => segments.add((fromBeat: fromBeat, t0AppMs: t0AppMs));
+  /// One entry per start of the nodes: a practice rewind (or a slow-down, or
+  /// a resume after a pause) adds a segment that restarts at [fromBeat] with
+  /// its own t0 and tempo.
+  final segments = <({double fromBeat, int t0AppMs, double bpm})>[];
+  void addSegment(int t0AppMs, {double fromBeat = 1, double? bpm}) =>
+      segments.add((fromBeat: fromBeat, t0AppMs: t0AppMs, bpm: bpm ?? preset.bpm));
+
+  /// Per node: clock offset and firmware, noted after each clock sync so the
+  /// metadata survives the node dropping out before the end.
+  final _nodeMeta = <Role, Map<String, Object?>>{};
+  void noteNode(NodeClient n) =>
+      _nodeMeta[n.role] = {'offset_us': n.offsetUs, 'fw_version': n.status?.fwVersion};
+
+  /// Stream samples written per node, for the capture screen.
+  final sampleCounts = <Role, int>{};
 
   bool _begun = false, _ended = false;
   bool get begun => _begun;
@@ -65,18 +79,22 @@ class SessionRecorder {
     dir = Directory('${docs.path}/sessions/$sessionId');
     await dir.create(recursive: true);
 
-    for (final n in nodes.nodes.where((n) => n.connected)) {
-      final sink = File('${dir.path}/${n.roleLabel}.csv').openWrite();
-      sink.writeln('t_node_us,ax,ay,az,gx,gy,gz,qw,qx,qy,qz');
-      _sinks[n.role] = sink;
-      _pending[n.role] = {};
-      _subs.add(n.batches.listen((b) => _onBatch(n.role, b)));
-      _subs.add(n.events.listen((e) => _onEvent(n.role, e)));
+    // Every node, connected or not: one that joins or comes back mid-session
+    // is recorded too (its file is opened on its first batch).
+    for (final n in nodes.nodes) {
+      _subs.add(n.batches.listen((b) => _onBatch(n, b)));
+      _subs.add(n.events.listen((e) => _onEvent(n, e)));
     }
   }
 
-  void _onBatch(Role role, StreamBatch b) {
-    final pend = _pending[role]!;
+  void _onBatch(NodeClient n, StreamBatch b) {
+    final role = n.role;
+    _sinks.putIfAbsent(role, () {
+      final sink = File('${dir.path}/${n.roleLabel}.csv').openWrite();
+      sink.writeln('t_node_us,ax,ay,az,gx,gy,gz,qw,qx,qy,qz');
+      return sink;
+    });
+    final pend = _pending.putIfAbsent(role, () => {});
     final rows = pend.putIfAbsent(b.t0NodeUs, () => List.generate(StreamBatch.samplesPerBatch, (i) {
           final t = b.t0NodeUs + i * sampleMs * 1000;
           return <num?>[t, null, null, null, null, null, null, null, null, null, null];
@@ -107,23 +125,26 @@ class SessionRecorder {
   void _flush(Role role, List<List<num?>> rows) {
     final sink = _sinks[role];
     if (sink == null) return;
+    sampleCounts.update(role, (c) => c + rows.length, ifAbsent: () => rows.length);
     for (final r in rows) {
       sink.writeln(r.map((v) => v == null ? '' : (v is double ? v.toStringAsFixed(4) : '$v')).join(','));
     }
   }
 
-  void _onEvent(Role role, StepEvent e) {
+  void _onEvent(NodeClient n, StepEvent e) {
+    final role = n.role;
     var label = -1;
     var source = '';
-    if (mode == Mode.capture && t0AppMs != null) {
+    // Against the current segment: a resume after a pause restarts the clock.
+    final seg = segments.lastOrNull;
+    final msAfter = seg == null || n.offsetUs == null ? null : n.msAfter(e.tStrikeNodeUs, seg.t0AppMs);
+    if (mode == Mode.capture && msAfter != null) {
       // Label from the schedule: nearest scheduled beat for this foot within 250 ms.
-      final node = role == Role.left ? nodes.left : nodes.right;
-      final tAppMs = (e.tStrikeNodeUs - (node.offsetUs ?? 0)) / 1000.0;
-      final beatT = tAppMs - t0AppMs!;
+      final beatMs = 60000 / seg!.bpm;
       PresetStep? best;
       var bestErr = double.infinity;
       for (final s in preset.steps.where((s) => s.foot == role)) {
-        final err = (preset.beatToMs(s.beat) - beatT).abs();
+        final err = ((s.beat - 1) * beatMs - msAfter).abs();
         if (err < bestErr) {
           bestErr = err;
           best = s;
@@ -134,7 +155,7 @@ class SessionRecorder {
         source = 'capture';
       }
     }
-    events.add(RecordedEvent(role, e, label, source));
+    events.add(RecordedEvent(role, e, msAfter == null ? null : seg!.t0AppMs + msAfter, label, source));
   }
 
   /// Writes events.csv and session.json. Safe to call twice; a no-op before [begin].
@@ -155,7 +176,8 @@ class SessionRecorder {
     }
     final ev = File('${dir.path}/events.csv').openWrite();
     ev.writeln('t_strike_node_us,foot,step_class,confidence,expected_class,timing_err_ms,verdict,label_class,label_source');
-    events.sort((a, b) => a.ev.tStrikeNodeUs.compareTo(b.ev.tStrikeNodeUs));
+    // By app time, not the raw node clock, which wraps every 71.6 min.
+    events.sort((a, b) => (a.tAppMs ?? 0).compareTo(b.tAppMs ?? 0));
     for (final r in events) {
       final e = r.ev;
       ev.writeln('${e.tStrikeNodeUs},${r.foot == Role.left ? 'L' : 'R'},${e.stepClass.index},${e.confidence},'
@@ -173,11 +195,12 @@ class SessionRecorder {
       'mode': mode.name,
       't0_app_ms': t0AppMs,
       'segments': [
-        for (final g in segments) {'from_beat': g.fromBeat, 't0_app_ms': g.t0AppMs},
+        for (final g in segments) {'from_beat': g.fromBeat, 't0_app_ms': g.t0AppMs, 'bpm': g.bpm},
       ],
       'nodes': {
-        for (final n in nodes.nodes.where((n) => n.connected))
-          n.roleLabel: {'offset_us': n.offsetUs, 'fw_version': n.status?.fwVersion},
+        for (final n in nodes.nodes)
+          if (n.connected) n.roleLabel: {'offset_us': n.offsetUs, 'fw_version': n.status?.fwVersion}
+          else if (_nodeMeta[n.role] case final meta?) n.roleLabel: meta,
       },
       'app_version': appVersion,
       'protocol_version': protocolVersion,

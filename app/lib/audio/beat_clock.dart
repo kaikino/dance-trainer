@@ -20,12 +20,26 @@ import '../store/settings.dart';
 ///
 /// Beat 1 is at [t0AppMs] (wall clock, ms since epoch, as heard). The track
 /// starts `countInBeats` before that.
+///
+/// The clock does not tick by itself: read [nowBeat] once a frame (a Ticker).
+/// Listeners hear about play, pause and stop.
 class BeatClock extends ChangeNotifier {
-  BeatClock(this.preset);
+  BeatClock(this.preset) {
+    _playerSub = _player.playerStateStream.listen((s) {
+      // The player stopped while the clock thought it was playing: audio focus
+      // lost (a call, another app) or the output went away.
+      if (_anchorWallMs != null && !s.playing && s.processingState != ProcessingState.completed) {
+        onInterrupted?.call();
+      }
+    });
+  }
 
   final Preset preset;
   final _player = AudioPlayer();
-  Timer? _frame;
+  late final StreamSubscription<PlayerState> _playerSub;
+
+  /// Called when playback stops without [pause] or [stop] being asked for.
+  VoidCallback? onInterrupted;
 
   int? t0AppMs;
   bool get playing => _player.playing;
@@ -77,7 +91,6 @@ class BeatClock extends ChangeNotifier {
   Future<void> pause() async {
     _heldFileMs = _heardFileMs;
     _anchorWallMs = null;
-    _frame?.cancel();
     await _player.pause();
     notifyListeners();
   }
@@ -97,23 +110,20 @@ class BeatClock extends ChangeNotifier {
     // Beat 1 is heard when the track reaches the end of the count-in.
     t0AppMs = (_anchorWallMs! + AppSettings.audioDelayMs + (_countInFileMs - fileMs) / _rate).round();
     debugPrint('beat clock: play from ${fileMs.round()} ms, delay ${AppSettings.audioDelayMs} ms, t0 $t0AppMs');
-    // Redraw every frame; the player's position stream updates too coarsely.
-    _frame?.cancel();
-    _frame = Timer.periodic(const Duration(milliseconds: 16), (_) => notifyListeners());
     notifyListeners();
     return t0AppMs!;
   }
 
   Future<void> stop() async {
-    _frame?.cancel();
     _heldFileMs = _heardFileMs;
     _anchorWallMs = null;
     await _player.stop();
+    notifyListeners();
   }
 
   @override
   void dispose() {
-    _frame?.cancel();
+    _playerSub.cancel();
     _player.dispose();
     super.dispose();
   }

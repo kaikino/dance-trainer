@@ -55,6 +55,10 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
       _running = true;
       _seenRunning = false;
     });
+    if (!n.connected) {
+      _fail('The ${_foot(n)} node is not connected. Go back, scan for it, and try again.');
+      return;
+    }
     if (n.status?.calPhase == null) {
       _fail('The ${_foot(n)} node has old firmware that cannot be guided. Reflash it with the current firmware.');
       return;

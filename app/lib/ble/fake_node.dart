@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import 'clock_sync.dart';
 import 'node_client.dart';
 import 'protocol.dart';
 
@@ -74,11 +75,11 @@ class FakeNodeClient extends NodeClient {
     _seq = 0;
     _publishStatus();
     final beatUs = 60e6 / _bpm;
-    final t0NodeUs = appMsToNodeUs(t0AppMs);
+    final t0NodeUs = appMsToNodeUs(t0AppMs) & 0xffffffff;
     final nowNode = _nodeNowUs;
     for (final (beat, cls) in _steps) {
-      final dueNodeUs = t0NodeUs + ((beat - 1) * beatUs).round();
-      final fire = dueNodeUs - nowNode;
+      final dueNodeUs = (t0NodeUs + ((beat - 1) * beatUs).round()) & 0xffffffff;
+      final fire = u32DeltaUs(dueNodeUs, nowNode);
       if (fire < 0) continue;
       _timers.add(Timer(Duration(microseconds: fire), () => _step(dueNodeUs, cls)));
     }

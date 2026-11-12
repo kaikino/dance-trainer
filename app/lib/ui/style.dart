@@ -3,8 +3,10 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../ble/protocol.dart';
+import '../models/preset.dart';
 
-/// Shared words and colours, so every screen names steps and verdicts the same way.
+/// Shared words, colours, icons and small widgets, so every screen names and
+/// draws steps and verdicts the same way.
 
 /// Short human name for a step class, as the dancer reads it ("side out", "tap").
 String stepLabel(StepClass c) => switch (c) {
@@ -20,13 +22,31 @@ String stepLabel(StepClass c) => switch (c) {
 
 String footName(Role r) => r == Role.left ? 'Left' : 'Right';
 
-/// Colour and name for each verdict. Pending steps use the theme's primary.
+/// Arrow for a step, as the dancer sees the chart (left lane = left foot).
+/// Side steps point outward and closes point inward; a cross goes inward past
+/// the other foot, so it is the inward arrow doubled (as a kick is a doubled
+/// forward). Material glyphs, not Unicode arrows, which Android draws as emoji.
+IconData? stepIcon(StepClass c, Role foot) {
+  final left = foot == Role.left;
+  return switch (c) {
+    StepClass.forward => Icons.arrow_upward_rounded,
+    StepClass.back => Icons.arrow_downward_rounded,
+    StepClass.sideOut => left ? Icons.arrow_back_rounded : Icons.arrow_forward_rounded,
+    StepClass.sideIn => left ? Icons.arrow_forward_rounded : Icons.arrow_back_rounded,
+    StepClass.cross => left ? Icons.keyboard_double_arrow_right_rounded : Icons.keyboard_double_arrow_left_rounded,
+    StepClass.kick => Icons.keyboard_double_arrow_up_rounded,
+    StepClass.inPlace => Icons.adjust_rounded,
+    StepClass.none => null,
+  };
+}
+
+/// Colour, name and icon for each verdict. Pending steps use the theme's primary.
 extension VerdictStyle on Verdict {
   Color get color => switch (this) {
         Verdict.correct => const Color(0xFF2E7D32), // green 800
         Verdict.wrongStep => const Color(0xFFC62828), // red 800
-        Verdict.offBeat => const Color(0xFFE65100), // orange 900, reads as amber, white text stays legible
-        Verdict.missed => const Color(0xFF6E6E6E), // neutral grey, apart from the indigo of pending steps
+        Verdict.offBeat => const Color(0xFFE65100), // orange 900: reads as amber, white text stays legible
+        Verdict.missed => const Color(0xFF546E7A), // slate: apart from the indigo of pending steps and from "empty"
         Verdict.extra || Verdict.unjudged => const Color(0xFF9E9E9E),
       };
 
@@ -38,7 +58,22 @@ extension VerdictStyle on Verdict {
         Verdict.extra => 'extra',
         Verdict.unjudged => 'not judged',
       };
+
+  IconData get icon => switch (this) {
+        Verdict.correct => Icons.check_circle_rounded,
+        Verdict.wrongStep => Icons.cancel_rounded,
+        Verdict.offBeat => Icons.schedule_rounded,
+        Verdict.missed => Icons.remove_circle_outline_rounded,
+        Verdict.extra || Verdict.unjudged => Icons.help_outline_rounded,
+      };
 }
+
+/// The verdicts a dancer is scored on, in display order.
+const scoredVerdicts = [Verdict.correct, Verdict.wrongStep, Verdict.offBeat, Verdict.missed];
+
+/// Accuracy band colour: green from 85%, amber from 60%, else red.
+Color accuracyColor(double acc) =>
+    acc >= 0.85 ? Verdict.correct.color : (acc >= 0.6 ? Verdict.offBeat.color : Verdict.wrongStep.color);
 
 /// Centres content and keeps it at a readable width on a tablet.
 class ContentWidth extends StatelessWidget {
@@ -54,6 +89,61 @@ class ContentWidth extends StatelessWidget {
           child: SizedBox(width: min(maxWidth, c.maxWidth), child: child),
         ),
       );
+}
+
+/// Section heading used on every list screen.
+class SectionHeader extends StatelessWidget {
+  const SectionHeader(this.text, {super.key, this.trailing, this.top = 24});
+  final String text;
+  final Widget? trailing;
+  final double top;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(4, top, 4, 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(text.toUpperCase(),
+                style: theme.textTheme.labelLarge?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
+          ),
+          if (trailing != null) trailing!,
+        ],
+      ),
+    );
+  }
+}
+
+/// A bar of buttons pinned to the bottom of a screen. The first button is the
+/// main one and gets the most room.
+class BottomActions extends StatelessWidget {
+  const BottomActions({super.key, required this.children, this.maxWidth = 720});
+  final List<Widget> children;
+  final double maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainer,
+      child: ContentWidth(
+        maxWidth: maxWidth,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Row(
+            children: [
+              for (var i = 0; i < children.length; i++) ...[
+                if (i > 0) const SizedBox(width: 12),
+                Expanded(flex: i == 0 ? 2 : 1, child: SizedBox(height: 56, child: children[i])),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// A small non-interactive status pill: icon plus text, tinted.
@@ -80,6 +170,93 @@ class StatusPill extends StatelessWidget {
           Text(text, style: TextStyle(color: c, fontWeight: FontWeight.w600)),
         ],
       ),
+    );
+  }
+}
+
+/// Accuracy as a thick coloured ring with the percentage in the middle.
+class ScoreRing extends StatelessWidget {
+  const ScoreRing({super.key, required this.value, required this.caption, this.size = 180});
+  final double? value;
+  final String caption;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final v = value;
+    final color = v == null ? theme.colorScheme.outline : accuracyColor(v);
+    return SizedBox.square(
+      dimension: size,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CircularProgressIndicator(
+            value: v ?? 0,
+            strokeWidth: size * 0.075,
+            strokeCap: StrokeCap.round,
+            color: color,
+            backgroundColor: color.withValues(alpha: 0.14),
+          ),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(v == null ? '–' : '${(v * 100).round()}%',
+                    style: TextStyle(fontSize: size * 0.25, fontWeight: FontWeight.w800, color: color, height: 1)),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: size * 0.15),
+                  child: Text(caption,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A routine's first bars as two rows of small step icons (L over R), one
+/// column per beat, so routines can be told apart at a glance.
+class StepPatternPreview extends StatelessWidget {
+  const StepPatternPreview({super.key, required this.preset, this.beats = 8, this.color});
+  final Preset preset;
+  final int beats;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final c = color ?? scheme.primary;
+    Widget cell(Role foot, int beat) {
+      final s = preset.steps.where((s) => s.foot == foot && s.beat.floor() == beat).firstOrNull;
+      final icon = s == null ? null : stepIcon(s.stepClass, foot);
+      return Expanded(
+        child: AspectRatio(
+          aspectRatio: 1,
+          child: Container(
+            margin: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: icon == null ? scheme.outlineVariant.withValues(alpha: 0.35) : c,
+              shape: BoxShape.circle,
+            ),
+            child: icon == null
+                ? null
+                : FittedBox(child: Padding(padding: const EdgeInsets.all(4), child: Icon(icon, color: Colors.white))),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final foot in Role.values) Row(children: [for (var b = 1; b <= beats; b++) cell(foot, b)]),
+      ],
     );
   }
 }

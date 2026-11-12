@@ -276,6 +276,7 @@ class _FootPanel extends StatelessWidget {
     final st = foot.node.status;
     final theme = Theme.of(context);
     final (badge, color) = switch (st) {
+      _ when !foot.node.connected => ('Disconnected', theme.colorScheme.error),
       null || Status(calFlags: null) => ('Calibration unknown (old firmware)', Colors.grey),
       Status(boardMoved: true) => ('Board moved on the strap? Calibrate again', Colors.orange),
       Status(knowsForward: true) => ('Calibrated', Colors.green),
@@ -287,7 +288,9 @@ class _FootPanel extends StatelessWidget {
       if (_angle(foot.toeUp, 'up', 'down') case final s?) 'toe $s',
       if (_angle(foot.outerEdgeUp, 'up', 'down') case final s?) 'outer edge $s',
     ];
-    final caption = !foot.seen
+    final caption = !foot.node.connected
+        ? 'Disconnected. Go back and scan again.'
+        : !foot.seen
         ? 'Waiting for data…'
         : parts.isEmpty
             ? 'Flat, toe straight ahead'
@@ -308,7 +311,13 @@ class _FootPanel extends StatelessWidget {
                 Expanded(child: Text(badge, style: TextStyle(color: color), overflow: TextOverflow.ellipsis)),
               ],
             ),
-            Expanded(child: CustomPaint(painter: _FootPainter(foot, theme), size: Size.infinite)),
+            Expanded(
+              // A dropped node: the last pose, greyed out.
+              child: Opacity(
+                opacity: foot.node.connected ? 1 : 0.3,
+                child: CustomPaint(painter: _FootPainter(foot, theme), size: Size.infinite),
+              ),
+            ),
             // Two lines reserved so the panel does not jump as the caption changes.
             SizedBox(
               height: (theme.textTheme.titleMedium?.fontSize ?? 16) * 1.4 * 2,

@@ -11,13 +11,13 @@ final preset = Preset(1, 'Test', 120, 4, [
 StepEvent ev(int seq, Verdict v, {StepClass expected = StepClass.forward, int errMs = 0}) =>
     StepEvent(seq, 0, StepClass.forward, 200, expected, errMs, v);
 
-/// ms after t0 at which `beat` falls.
-double at(double beat) => preset.beatToMs(beat);
+/// Where an event lands, in beats (the score works in beats, not ms).
+double at(double beat) => beat;
 
 void main() {
   test('an event is matched to the nearest step of its foot', () {
     final s = SessionScore(preset);
-    final r = s.add(Role.right, ev(0, Verdict.correct), at(4) + 100);
+    final r = s.add(Role.right, ev(0, Verdict.correct), at(4) + 0.2);
     expect(r.fate, EventFate.step);
     expect(r.step, 3); // beat 4, right foot
     expect(s.count(Verdict.correct), 1);
@@ -38,7 +38,7 @@ void main() {
   test('a later verdict for a step replaces the earlier one', () {
     final s = SessionScore(preset);
     s.add(Role.left, ev(0, Verdict.missed), at(1));
-    s.add(Role.left, ev(1, Verdict.correct), at(1) + 50);
+    s.add(Role.left, ev(1, Verdict.correct), at(1) + 0.1);
     expect(s.count(Verdict.missed), 0);
     expect(s.count(Verdict.correct), 1);
     expect(s.judged, 1);
@@ -94,5 +94,97 @@ void main() {
     expect(m.first.foot, Role.right);
     expect(m.map((g) => g.count), [1, 1]);
     expect(s.meanTimingMs, 200);
+  });
+
+  test('first-try accuracy keeps the first attempt; a replay only fixes the latest', () {
+    final s = SessionScore(preset);
+    // Bar 1: beat 1 right, beat 2 wrong. Rewind, then both right.
+    s.add(Role.left, ev(0, Verdict.correct), at(1));
+    s.add(Role.right, ev(0, Verdict.wrongStep), at(2));
+    s.rewind(1);
+    s.add(Role.left, ev(0, Verdict.correct), at(1));
+    s.add(Role.right, ev(0, Verdict.correct), at(2));
+    // Bar 2, first time: right; a node revising its own verdict in the same
+    // attempt (missed, then correct) still counts as the first try.
+    s.add(Role.left, ev(1, Verdict.missed), at(5));
+    s.add(Role.left, ev(2, Verdict.correct), at(5) + 0.1);
+    expect(s.accuracy, 1.0);
+    expect(s.firstTry, {0: Verdict.correct, 1: Verdict.wrongStep, 4: Verdict.correct});
+    expect(s.firstTryAccuracy, closeTo(2 / 3, 1e-9));
+  });
+
+  test('tries per bar and the hardest bar', () {
+    final s = SessionScore(preset);
+    expect(s.hardestBar, isNull);
+    s.rewind(5);
+    s.rewind(5);
+    s.rewind(1);
+    expect(s.rewindsByBar, {2: 2, 1: 1});
+    expect(s.rewinds, 3);
+    expect(s.hardestBar, (bar: 2, tries: 3));
+    // Ties go to the earlier bar.
+    s.rewind(1);
+    expect(s.hardestBar, (bar: 1, tries: 3));
+  });
+
+  test('mistake groups break down by kind and remember the first step', () {
+    final s = SessionScore(preset);
+    s.add(Role.left, ev(0, Verdict.wrongStep), at(3));
+    s.add(Role.left, ev(1, Verdict.missed), at(5));
+    s.add(Role.left, ev(2, Verdict.missed), at(7));
+    final g = s.mistakesByStep().single;
+    expect(g.count, 3);
+    expect(g.byVerdict, {Verdict.wrongStep: 1, Verdict.missed: 2});
+    expect(g.first, 2);
+  });
+
+  test('a node that comes back restarts its seq without a segment restart', () {
+    final s = SessionScore(preset);
+    s.add(Role.left, ev(40, Verdict.correct), at(1));
+    expect(s.add(Role.left, ev(0, Verdict.correct), at(3)).fate, EventFate.duplicate);
+    s.forgetSeq(Role.left);
+    expect(s.add(Role.left, ev(0, Verdict.correct), at(3)).fate, EventFate.step);
+  });
+
+  group('practice rule', () {
+    test('off-beat carries on; wrong and missed rewind', () {
+      final c = PracticeCoach();
+      expect(c.onMistake(Verdict.offBeat, 2), PracticeAction.carryOn);
+      expect(c.onMistake(Verdict.correct, 2), PracticeAction.carryOn);
+      expect(c.onMistake(Verdict.wrongStep, 2), PracticeAction.rewind);
+      expect(c.nextTry, 2);
+      expect(c.onMistake(Verdict.missed, 3), PracticeAction.rewind);
+      expect(c.nextTry, 3);
+    });
+
+    test('three failed tries on one bar offer a choice instead of a fourth rewind', () {
+      final c = PracticeCoach();
+      expect(c.onMistake(Verdict.wrongStep, 5), PracticeAction.rewind);
+      expect(c.onMistake(Verdict.wrongStep, 6), PracticeAction.rewind); // same bar (beats 5-8)
+      expect(c.onMistake(Verdict.missed, 7), PracticeAction.offerChoice);
+      expect(c.bar, 2);
+    });
+
+    test('a different bar starts the count over', () {
+      final c = PracticeCoach();
+      c.onMistake(Verdict.wrongStep, 1);
+      c.onMistake(Verdict.wrongStep, 1);
+      expect(c.onMistake(Verdict.wrongStep, 5), PracticeAction.rewind);
+      expect(c.nextTry, 2);
+    });
+
+    test('slow down gives fresh tries; keep going never rewinds that bar again', () {
+      final c = PracticeCoach();
+      for (var i = 0; i < 3; i++) {
+        c.onMistake(Verdict.wrongStep, 1);
+      }
+      c.slowDown();
+      expect(c.onMistake(Verdict.wrongStep, 1), PracticeAction.rewind);
+      expect(c.onMistake(Verdict.wrongStep, 1), PracticeAction.rewind);
+      expect(c.onMistake(Verdict.wrongStep, 1), PracticeAction.offerChoice);
+      c.keepGoing();
+      expect(c.onMistake(Verdict.wrongStep, 2), PracticeAction.carryOn);
+      expect(c.onMistake(Verdict.wrongStep, 5), PracticeAction.rewind);
+    });
   });
 }
