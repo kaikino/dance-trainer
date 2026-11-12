@@ -12,6 +12,7 @@ extern "C" {
 typedef struct {
     int16_t imp, e, s;          // window indexes: landing, end ZUPT, start ZUPT
     uint8_t how;                // start ZUPT: 0 found, 1 nearest landing height, 2 quietest point
+    uint8_t how_e;              // end ZUPT: 0 settled, 1 only planted (still moving at the window end)
     float dx_cm, dy_cm, dz_cm;  // de-drifted displacement start→end (+x toe, +y outward)
     float zmax_cm;              // highest point of the swing
     float pitch_min_deg;        // most toe-up shank pitch during the swing (negative)

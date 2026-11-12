@@ -26,7 +26,7 @@ typedef struct {
 } fused_sample_t;
 
 // Ring buffer shared with stepdet and the BLE stream.
-#define FUSION_RING_LEN 256   // ≈2.5 s; stepdet cuts 100 samples back from a strike up to ~30 samples old
+#define FUSION_RING_LEN 256   // ≈2.5 s; stepdet cuts 100 samples back from a strike ~40 samples old
 
 void fusion_init(dt_role_t role);             // loads calibration from flash if present
 void fusion_task(void *arg);                  // sample_q → ring

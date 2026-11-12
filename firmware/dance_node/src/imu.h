@@ -13,7 +13,7 @@ typedef struct {
     float gx, gy, gz;    // dps
 } imu_sample_t;
 
-#define IMU_RATE_HZ 100
+#define IMU_RATE_HZ 104   // LSM6DS3 ODR set in imu_init(); fusion uses it only for the first dt
 
 bool imu_init(void);        // powers the LSM6DS3TR-C, configures 104 Hz, ±16 g, ±2000 dps, INT1 DRDY
 void imu_task(void *arg);   // waits on INT1, reads a sample, pushes to sample_q

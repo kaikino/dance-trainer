@@ -35,9 +35,9 @@ static void rules_print(const step_window_t *w, dt_step_class_t used, uint8_t us
     uint8_t rc;
     dt_step_class_t r = rules_classify_ex(w, &rc, &f);
     printf("rules t=%lu %s conf=%u | dx=%.1f dy=%.1f dz=%.1f cm zmax=%.1f cm pitch=%.0f range=%.0f roll=%.1f deg "
-           "swing=%.0f ms zupt=%u imp=%d s=%d e=%d | %s=%s %u\n",
+           "swing=%.0f ms zupt=%u settle=%u imp=%d s=%d e=%d | %s=%s %u\n",
            (unsigned long)w->t_strike_us, class_names[r], (unsigned)rc, f.dx_cm, f.dy_cm, f.dz_cm, f.zmax_cm,
-           f.pitch_min_deg, f.pitch_range_deg, f.roll_deg, f.swing_ms, (unsigned)f.how, f.imp, f.s, f.e,
+           f.pitch_min_deg, f.pitch_range_deg, f.roll_deg, f.swing_ms, (unsigned)f.how, (unsigned)f.how_e, f.imp, f.s, f.e,
            classifier_name(), class_names[used], (unsigned)used_conf);
 }
 

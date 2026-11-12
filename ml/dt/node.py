@@ -189,25 +189,44 @@ def cut(fused: dict, peak_idx: int, right: bool, win_pre: int, win_post: int) ->
 @dataclass(frozen=True)
 class SwingDetector:
     """swingdet.c in Python; the constants there are fixed, these defaults equal them.
-    Every comparison is on float32 squared magnitudes, in the same order as the C,
-    so the two agree exactly (tests/test_stepdet_parity.py)."""
+    Every comparison is on float32 values computed in the same order as the C, so the
+    two agree exactly (tests/test_stepdet_parity.py).
+
+    A swing starts when the shank or foot moves: |gyro| > 100 dps, ||a| - 1 g| > 0.4 g,
+    or |a_world| > 0.3 g (a slide barely turns the shank). It ends when the foot is
+    planted (shank pitched < 35°):
+      - after an impact: |a_world| < 0.4 g, |gyro| < 200 dps for 8 samples, with a
+        sensor |a| peak > 1.25 g in the 8 samples before, at least 6 samples into the
+        swing (the lift-off push is not a landing);
+      - without one: |a_world| < 0.25 g, |gyro| < 60 dps for 20 samples (longer than a
+        mid-swing coast).
+    A swing is a step if it lasted >= 12 samples and the foot moved: the integral of
+    min(|a_world|, 1.5 g) over it >= 0.8 m/s (a bump from the other foot, or the shank rolling
+    over the planted foot, is far less). Within 30 samples of the last plant only an
+    impact may end a step (the shank rolling forward after a landing is not one). The
+    strike is the latest impact in the 15 samples before planting, else the last
+    deceleration peak. It is emitted win_post samples later (several can be pending)."""
     win_pre: int
     win_post: int
-    act_gyro_dps: float = 100.0     # swing starts: |gyro| above this ...
-    act_acc_g: float = 0.4          # ... or ||a| - 1 g| above this
-    still_gyro_dps: float = 60.0    # planted without an impact: |gyro| below this ...
-    still_acc_g: float = 0.25       # ... and |a_world| below this ...
-    still_soft: int = 14            # ... for this many samples (a mid-swing coast is shorter)
-    still_gyro_impact_dps: float = 200.0   # planted right after an impact (weight transfer
-    still_acc_impact_g: float = 0.4        # still rolls the shank): looser ...
-    still_samples: int = 6                 # ... for this many samples
-    impact_g: float = 1.25          # |a| local peak above this = foot hit the floor
-    impact_near: int = 8            # impact within this many samples before planting
-    anchor_back: int = 15           # strike = latest impact this far before planting
-    min_swing: int = 12             # samples; shorter = a bump (other foot landing), not a step
-    min_gyro_dps: float = 80.0      # a step rotates the shank at least this fast
-    max_swing: int = 160            # longer motion without planting is dropped
-    max_pitch_sin: float = 0.57     # planted shank pitched < 35° (a held kick is not)
+    act_gyro_dps: float = 100.0
+    act_acc_g: float = 0.4
+    act_world_g: float = 0.3
+    still_gyro_dps: float = 60.0
+    still_acc_g: float = 0.25
+    still_soft: int = 20
+    still_gyro_impact_dps: float = 200.0
+    still_acc_impact_g: float = 0.4
+    still_samples: int = 8
+    impact_g: float = 1.25
+    impact_near: int = 8
+    impact_after: int = 6
+    anchor_back: int = 15
+    min_swing: int = 12
+    min_motion: float = 8.48        # ∫min(|a_world|, 1.5 g) in g·samples (0.8 m/s at 104 Hz)
+    motion_cap_g: float = 1.5
+    guard: int = 30
+    max_swing: int = 160
+    max_pitch_sin: float = 0.57
     refract_ms: int = 200
 
 
@@ -230,46 +249,60 @@ def _latest_peak(v, lo, hi, thr):
 
 
 def detect_swing(fused: dict, det: SwingDetector) -> list[int]:
-    """Strike anchors as stepdet.c detect_task() emits them: one per swing, at the
-    landing impact (or where a soft landing decelerated), once the foot is planted."""
+    """Strike anchors as swingdet.c emits them: one per step, at the landing impact (or
+    where a soft landing decelerated), win_post samples after it."""
     acc = fused["acc"].astype(np.float32)
     t_us = fused["t_us"]
     mag2 = _sq3(acc); gm2 = _sq3(fused["gyr"]); magw2 = _sq3(fused["foot"])
+    magw = np.minimum(np.sqrt(magw2), np.float32(det.motion_cap_g))   # float32 sqrt = sqrtf; capped:
+    # a one-sample knock (strap, other foot) is not foot motion
     ax2 = acc[:, 0] * acc[:, 0]
     ACT_G2 = _f2(det.act_gyro_dps); HI2 = _f2(1 + det.act_acc_g); LO2 = _f2(1 - det.act_acc_g)
+    ACT_W2 = _f2(det.act_world_g)
     ST_G2 = _f2(det.still_gyro_dps); ST_A2 = _f2(det.still_acc_g)
     LO_G2 = _f2(det.still_gyro_impact_dps); LO_A2 = _f2(det.still_acc_impact_g)
-    IMP2 = _f2(det.impact_g); MING2 = _f2(det.min_gyro_dps); PITCH2 = _f2(det.max_pitch_sin)
+    IMP2 = _f2(det.impact_g); PITCH2 = _f2(det.max_pitch_sin); MOT = np.float32(det.min_motion)
     out = []
+    pend = []                                   # anchors waiting for their post-strike samples
     moving = False
-    start = 0; gpk2 = np.float32(0); still_run = 0; loose_run = 0; pending = -1; last_us = None
+    start = 0; still_run = 0; loose_run = 0; last_us = None; last_end = -(1 << 30)
+    mot = np.float32(0); still_sum = np.float32(0); loose_sum = np.float32(0)
     for idx in range(len(mag2)):
-        if pending >= 0:
-            if idx >= pending + det.win_post:
-                out.append(pending); last_us = t_us[pending]; pending = -1
-            continue
-        active = gm2[idx] > ACT_G2 or mag2[idx] > HI2 or mag2[idx] < LO2
+        if pend and idx >= pend[0] + det.win_post:    # at most one per sample (anchors are > 20 apart)
+            out.append(pend.pop(0))
+        active = gm2[idx] > ACT_G2 or mag2[idx] > HI2 or mag2[idx] < LO2 or magw2[idx] > ACT_W2
         upright = ax2[idx] < PITCH2 * mag2[idx]
         quiet = upright and magw2[idx] < ST_A2 and gm2[idx] < ST_G2
         loose = upright and magw2[idx] < LO_A2 and gm2[idx] < LO_G2
         if not moving:
             if active:
-                moving = True; start = idx; gpk2 = gm2[idx]; still_run = 0; loose_run = 0
+                moving = True; start = idx; still_run = 0; loose_run = 0
+                mot = magw[idx]; still_sum = np.float32(0); loose_sum = np.float32(0)
             continue
-        gpk2 = max(gpk2, gm2[idx])
-        still_run = still_run + 1 if quiet else 0
-        loose_run = loose_run + 1 if loose else 0
-        settled = False
-        end = 0
+        mot = mot + magw[idx]
+        if quiet:
+            still_run += 1; still_sum = still_sum + magw[idx]
+        else:
+            still_run = 0; still_sum = np.float32(0)
+        if loose:
+            loose_run += 1; loose_sum = loose_sum + magw[idx]
+        else:
+            loose_run = 0; loose_sum = np.float32(0)
+        settled = False; impact = False
+        end = 0; m = np.float32(0)
         if loose_run == det.still_samples:
             end = idx - loose_run + 1
-            settled = _latest_peak(mag2, max(end - det.impact_near, start), end, IMP2) >= 0
+            lo = max(end - det.impact_near, start + det.impact_after)
+            if _latest_peak(mag2, lo, end, IMP2) >= 0:
+                settled = True; impact = True; m = mot - loose_sum
         if not settled and still_run >= det.still_soft:
             end = idx - still_run + 1
-            settled = True
+            settled = True; m = mot - still_sum
         if settled:
             moving = False
-            if end - start < det.min_swing or gpk2 < MING2:
+            if end - start < det.min_swing or m < MOT:
+                continue
+            if not impact and start - last_end < det.guard:
                 continue
             lo = max(end - det.anchor_back, start)
             a = _latest_peak(mag2, lo, end, IMP2)
@@ -279,10 +312,10 @@ def detect_swing(fused: dict, det: SwingDetector) -> list[int]:
                 a = max(end - 3, start)
             if last_us is not None and t_us[a] - last_us <= det.refract_ms * 1000:
                 continue
-            if idx >= a + det.win_post:
-                out.append(a); last_us = t_us[a]
-            else:
-                pending = a
+            last_us = t_us[a]; last_end = end
+            if len(pend) == 4:     # cannot happen (refractory vs win_post); keep the newest
+                pend.pop(0)
+            pend.append(a)         # a + win_post > idx always: anchor_back + still_soft < win_post
         elif idx - start > det.max_swing:
             moving = False
     return out

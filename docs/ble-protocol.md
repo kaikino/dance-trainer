@@ -1,14 +1,15 @@
 # BLE protocol
 
-Source of truth for the node ⇄ phone interface. Firmware (`components/ble`,
-`components/common/include/dt_protocol.h`) and app (`app/lib/ble/protocol.dart`)
+Source of truth for the node ⇄ phone interface. Firmware
+(`firmware/dance_node/src/ble.cpp`, `dt_protocol.h`) and app (`app/lib/ble/protocol.dart`)
 implement exactly this. Bump `PROTOCOL_VERSION` on any wire change.
 
 - Role: node = GATT peripheral, phone = central. One connection per node.
 - MTU: request 247. Connection interval: request 15 ms (7.5–30 ms acceptable).
 - All multi-byte integers little-endian. Structs are packed (no padding).
-- Node clock `t_node_us`: `esp_timer_get_time()`, u32 wraps every ~71 min
-  (sessions are shorter; app handles one wrap).
+- Node clock `t_node_us`: `dt_now_us()`, nRF52 TIMER4 as a free-running 32-bit
+  1 MHz counter (`port.cpp`); wraps every ~71.6 min. The app compares node times
+  only through the signed u32 difference; `ml/` unwraps them.
 
 ## UUIDs
 
@@ -60,7 +61,8 @@ Phone writes 4 bytes: `t_app_ms u32`.
 Node notifies 8 bytes immediately: `t_app_ms u32, t_node_us u32`.
 
 Phone computes `offset = t_node_us − (t_app_ms_send + rtt/2) × 1000`. Repeat 8×,
-keep the sample with the smallest round trip. Re-sync every 10 s while dancing.
+keep the sample with the smallest round trip. The app syncs each node when a
+session starts and when a node reconnects; there is no periodic re-sync.
 
 ## Schedule (0004) — chunked write
 
@@ -119,11 +121,12 @@ Missed steps are sent with `step_class = 0`, `t_strike_node_us` = expected time.
 
 Sample: `qw, qx, qy, qz i16` (×1/16384), `ax, ay, az i16` (mg).
 
-In idle and dance mode: samples 20 ms apart (50 Hz); `ax..az` are in the
+In idle and dance mode: every 2nd IMU sample (52 Hz, ~19.2 ms apart); `ax..az` are in the
 **foot frame**: leveled, heading removed so +x = toe direction, gravity removed,
 and y mirrored on the **right** node so +y = outward on both feet.
 
-In capture mode the node streams 100 Hz instead: `ax..az` are in the
+In capture mode the node streams every sample, 104 Hz (the IMU ODR, ~9.6 ms
+apart): `ax..az` are in the
 **calibrated sensor frame** (after the calibration rotation: +z = up at the
 still pose, +x = toe from the slide-forward gesture; gravity included; not
 mirrored), and a second

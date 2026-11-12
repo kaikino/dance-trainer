@@ -145,26 +145,31 @@ static void event_task(void *)
 }
 
 // Every 100 ms, send what the fusion ring produced since the last tick.
-//   idle / dance: 5 samples at 50 Hz (every 2nd), quaternion + foot-frame accel (mg).
-//   capture:      10 samples at 100 Hz as two accel batches (aligned sensor
-//                 frame, mg) and two gyro batches (qw = DT_GYRO_PACKET_MARK,
-//                 ax..az = dps × 10).
+//   idle / dance: every 2nd sample (52 Hz), quaternion + foot-frame accel (mg).
+//   capture:      every sample (104 Hz, the IMU ODR) as accel batches (aligned
+//                 sensor frame, mg) each followed by a gyro batch with the same
+//                 t0 (qw = DT_GYRO_PACKET_MARK, ax..az = dps × 10).
+// A batch is DT_STREAM_SAMPLES samples; one left partial at the end of a tick
+// is completed on the next tick rather than dropped.
 static void stream_task(void *)
 {
     uint32_t next = fusion_count();
     TickType_t last = xTaskGetTickCount();
+    dt_stream_batch_t acc, gyr;
+    int n = 0;                 // samples already in acc/gyr, carried across ticks
+    bool was_capture = false;
     for (;;) {
         vTaskDelayUntil(&last, pdMS_TO_TICKS(100));
         uint32_t end = fusion_count();
-        if (!ble_connected() || !chr_stream.notifyEnabled()) { next = end; continue; }
-        if (end - next > FUSION_RING_LEN) next = end - 10;   // fell behind; resync
+        if (!ble_connected() || !chr_stream.notifyEnabled()) { next = end; n = 0; continue; }
+        if (end - next > FUSION_RING_LEN) { next = end - 10; n = 0; }   // fell behind; resync
         bool capture = judge_mode() == DT_MODE_CAPTURE;
+        if (capture != was_capture) { n = 0; was_capture = capture; }   // don't mix formats in a batch
         uint32_t step = capture ? 1 : 2;
 
         fused_sample_t f;
-        dt_stream_batch_t acc, gyr;
-        int n = 0;
-        for (uint32_t i = next; i < end; i += step) {
+        uint32_t i = next;
+        for (; i < end; i += step) {
             if (!fusion_get(i, &f)) continue;
             if (n == 0) { acc.t0_node_us = f.t_us; gyr.t0_node_us = f.t_us; }
             dt_stream_sample_t *a = &acc.s[n];
@@ -183,7 +188,7 @@ static void stream_task(void *)
                 n = 0;
             }
         }
-        next = end;   // a partial batch is dropped; the next tick starts fresh
+        next = i;   // first sample not yet taken (keeps the every-2nd phase in dance mode)
     }
 }
 

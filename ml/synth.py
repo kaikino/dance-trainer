@@ -19,7 +19,7 @@ from dt.protocol import CLASS_NAMES, StepClass
 
 ROOT = Path(__file__).resolve().parent.parent
 PRESETS = sorted((ROOT / "presets").glob("*.json"))
-RATE = 100
+RATE = 104   # the IMU ODR; the node streams every sample in capture mode
 
 # Foot-frame displacement direction per class (x = toe, y = outward), in g·s² units
 # that produce a visible accel pulse; kick is a bigger forward pulse without the plant.
@@ -74,7 +74,7 @@ def synth_session(dancer: str, preset: dict, idx: int, rng, out_dir: Path) -> No
     nodes, events = {}, []
     for foot in ("L", "R"):
         offset_us = int(rng.integers(1_000_000, 50_000_000))
-        t_node_us = (np.arange(n) * 10_000 + 1_000_000 + offset_us).astype(np.int64)
+        t_node_us = (np.rint(np.arange(n) * 1e6 / RATE) + 1_000_000 + offset_us).astype(np.int64)
         sig = np.zeros((n, 6), dtype=np.float32)
         sig[:, 2] = 1.0
         sig += rng.normal(0, 0.02, sig.shape).astype(np.float32)
@@ -92,14 +92,14 @@ def synth_session(dancer: str, preset: dict, idx: int, rng, out_dir: Path) -> No
             sig[i - n_pre : i + n_post] += step_pulse(n_pre, n_post, dx * amp, dy * amp, pk * amp, rng) - np.array([0, 0, 1, 0, 0, 0], dtype=np.float32)
             events.append({
                 "t_strike_node_us": int(t_node_us[i]), "foot": foot,
-                "step_class": 0, "confidence": 0, "expected_class": cls, "timing_err_ms": 0, "verdict": 0,
+                "step_class": cls, "confidence": 200, "expected_class": cls, "timing_err_ms": 0, "verdict": 0,
                 "label_class": -1, "label_source": "",
             })
         df = pd.DataFrame({
             "t_node_us": t_node_us,
             "ax": (sig[:, 0] * 1000).round().astype(int), "ay": (sig[:, 1] * 1000).round().astype(int), "az": (sig[:, 2] * 1000).round().astype(int),
             "gx": (sig[:, 3] * 10).round().astype(int), "gy": (sig[:, 4] * 10).round().astype(int), "gz": (sig[:, 5] * 10).round().astype(int),
-            "qw": 1.0, "qx": 0.0, "qy": 0.0, "qz": 0.0,  # identity: synthetic sensor frame == level
+            "qw": 16384, "qx": 0, "qy": 0, "qz": 0,  # identity, × 16384 like the app; synthetic sensor frame == level
         })
         df.to_csv(d / f"{foot}.csv", index=False)
         # t_app_ms = (t_node_us - offset_us) / 1000; sample 0 is at t0_app_ms - 1000 ms (beat 1 at +1000 ms).
@@ -108,7 +108,8 @@ def synth_session(dancer: str, preset: dict, idx: int, rng, out_dir: Path) -> No
     pd.DataFrame(events).sort_values("t_strike_node_us").to_csv(d / "events.csv", index=False)
     (d / "session.json").write_text(json.dumps({
         "session_id": sid, "dancer": dancer, "preset_id": preset["id"], "preset_name": preset["name"],
-        "bpm": bpm, "mode": "capture", "t0_app_ms": t0_app_ms, "nodes": nodes,
+        "bpm": bpm, "mode": "capture", "t0_app_ms": t0_app_ms,
+        "segments": [{"from_beat": 1.0, "t0_app_ms": t0_app_ms, "bpm": bpm}], "nodes": nodes,
         "app_version": "synth", "protocol_version": 1,
     }, indent=2))
 

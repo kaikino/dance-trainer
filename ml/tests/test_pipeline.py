@@ -1,0 +1,328 @@
+"""label.py / windows.py on app-format sessions built in a tmp dir.
+
+Covers: quaternions stored as int × 16384, session.json segments (rewind and
+slow-down), the node's u32 µs clock wrapping mid-session, and skipping of
+non-capture sessions and non-strike rows (step_class none, verdict missed), and
+the newer export (t_app_ms column per row, clock_syncs, node reboot mid-session).
+"""
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "ml"))
+
+import label  # noqa: E402
+import synth  # noqa: E402
+import windows as windows_script  # noqa: E402
+from dt import windows as W  # noqa: E402
+from dt.protocol import StepClass, Verdict  # noqa: E402
+
+U32 = 1 << 32
+T0 = 1_794_489_273_171          # app ms of beat 1, first segment
+BEAT96 = 60000 / 96
+TILT = np.radians(25.0)         # board pitched on the strap: a non-identity quaternion
+Q = (np.cos(TILT / 2), np.sin(TILT / 2), 0.0, 0.0)
+
+# Preset 3 (presets/basic_step.json, 8-beat loop): L 1 forward, 2 R in_place,
+# 3 L back, 5 R back, 6 L in_place, 7 R forward.
+FWD, INP, BACK = int(StepClass.FORWARD), int(StepClass.IN_PLACE), int(StepClass.BACK)
+
+
+def seg(from_beat, t0, bpm):
+    return {"from_beat": float(from_beat), "t0_app_ms": t0, "bpm": bpm}
+
+
+def beat_t(s, beat):
+    return s["t0_app_ms"] + (beat - 1) * 60000 / s["bpm"]
+
+
+def ev(foot, t_app_ms, step_class, label_class=-1, label_source="", verdict=Verdict.UNJUDGED):
+    return dict(foot=foot, t_app_ms=t_app_ms, step_class=int(step_class), verdict=int(verdict),
+                label_class=label_class, label_source=label_source)
+
+
+def make_session(d: Path, events, segments, *, node_start_us=5_000_000, mode="capture",
+                 scaled=True, seed=0, app_time=False, reboot_at_ms=None) -> Path:
+    """An app-export session dir. Node clocks are written as raw u32 (wrapping when
+    node_start_us + duration crosses 2^32); offset_us = node − app, as the app does.
+    app_time: newer export with a t_app_ms column on stream and event rows and
+    session.json clock_syncs. reboot_at_ms: both nodes reboot then (clock restarts
+    at 2 s, no rows for 1 s, then a new sync and offset)."""
+    d.mkdir(parents=True)
+    rng = np.random.default_rng(seed)
+    t_lo = min(e["t_app_ms"] for e in events) - 3000
+    t_hi = max(e["t_app_ms"] for e in events) + 3000
+    n = int((t_hi - t_lo) / 1000 * W.RATE_HZ)
+    t_app = t_lo + np.arange(n) * 1000 / W.RATE_HZ
+    nodes, syncs, offs = {}, [], {}
+    for k, foot in enumerate(("L", "R")):
+        start = node_start_us + k * 123_457
+        off1 = int(start - round(t_lo * 1000))
+        offs[foot] = [(t_lo, off1)]
+        syncs.append({"foot": foot, "offset_us": off1, "fw_version": 3, "synced_at_app_ms": int(t_lo)})
+        if reboot_at_ms is not None:
+            off2 = int(2_000_000 + 7 * k - round(reboot_at_ms * 1000))
+            offs[foot].append((reboot_at_ms, off2))
+            syncs.append({"foot": foot, "offset_us": off2, "fw_version": 3, "synced_at_app_ms": int(reboot_at_ms + 1000)})
+        off_at = lambda t, f=foot: [o for t0, o in offs[f] if t0 <= t][-1]
+        t_node = np.array([round(ta * 1000) + off_at(ta) for ta in t_app], dtype=np.int64)
+        # sensor accel = R^T g (mg), so the foot frame is ~0 once gravity is removed
+        w, x, y, z = Q
+        g = W._rotate(np.full(n, w), np.full(n, -x), np.full(n, -y), np.full(n, -z),
+                      np.tile([[0.0, 0.0, 1000.0]], (n, 1)))
+        g += rng.normal(0, 15, g.shape)
+        for e in events:
+            if e["foot"] == foot:
+                i = int((e["t_app_ms"] - t_lo) / 1000 * W.RATE_HZ)
+                g[i, 2] += 1500
+        q = np.tile(np.array(Q), (n, 1))
+        df = pd.DataFrame({
+            "t_node_us": t_node % U32,
+            "ax": g[:, 0].round().astype(int), "ay": g[:, 1].round().astype(int), "az": g[:, 2].round().astype(int),
+            "gx": rng.integers(-50, 50, n), "gy": rng.integers(-50, 50, n), "gz": rng.integers(-50, 50, n),
+        })
+        for c, j in zip(("qw", "qx", "qy", "qz"), range(4)):
+            df[c] = (q[:, j] * 16384).round().astype(int) if scaled else q[:, j]
+        if app_time:
+            df["t_app_ms"] = np.round(t_app, 1)
+        if reboot_at_ms is not None:
+            df = df[(t_app < reboot_at_ms) | (t_app >= reboot_at_ms + 1000)]
+        df.to_csv(d / f"{foot}.csv", index=False)
+        nodes[foot] = {"offset_us": offs[foot][-1][1], "fw_version": 3}
+    rows = []
+    for e in events:
+        off = [o for t0, o in offs[e["foot"]] if t0 <= e["t_app_ms"]][-1]
+        r = {"t_strike_node_us": (round(e["t_app_ms"] * 1000) + off) % U32, "foot": e["foot"],
+             "step_class": e["step_class"], "confidence": 200, "expected_class": 0, "timing_err_ms": 0,
+             "verdict": e["verdict"], "label_class": e["label_class"], "label_source": e["label_source"]}
+        if app_time:
+            r["t_app_ms"] = round(e["t_app_ms"], 1)
+        rows.append(r)
+    pd.DataFrame(rows).to_csv(d / "events.csv", index=False)
+    meta = {
+        "session_id": d.name, "dancer": "t", "preset_id": 3, "preset_name": "Basic forward and back",
+        "bpm": 96.0, "mode": mode, "t0_app_ms": segments[0]["t0_app_ms"], "segments": segments,
+        "nodes": nodes, "app_version": "test", "protocol_version": 1}
+    if app_time:
+        meta["clock_syncs"] = syncs
+    (d / "session.json").write_text(json.dumps(meta))
+    return d
+
+
+def labels(d: Path) -> list[int]:
+    return pd.read_csv(d / "events.csv")["label_class"].tolist()
+
+
+# --- three segments: start, practice rewind to beat 9, slow-down from beat 13 ----
+SEGS = [seg(1, T0, 96.0), seg(9, T0 + 5300, 96.0), seg(13, T0 + 15000 - 12 * 781.25, 76.8)]
+SEG_EVENTS = [
+    ev("L", beat_t(SEGS[0], 1) + 20, FWD), ev("R", beat_t(SEGS[0], 2) - 30, INP), ev("L", beat_t(SEGS[0], 3), BACK),
+    ev("L", beat_t(SEGS[1], 9) + 10, FWD), ev("R", beat_t(SEGS[1], 10), INP), ev("L", beat_t(SEGS[1], 11) - 40, BACK),
+    ev("R", beat_t(SEGS[2], 13) - 20, BACK), ev("L", beat_t(SEGS[2], 14) + 30, INP), ev("R", beat_t(SEGS[2], 15), FWD),
+]
+SEG_TRUTH = [FWD, INP, BACK, FWD, INP, BACK, BACK, INP, FWD]
+
+
+# ---------------------------------------------------------------- bug 1 ----------
+def test_foot_accel_reads_int_x16384_quaternions(tmp_path):
+    d = make_session(tmp_path / "s", SEG_EVENTS[:3], SEGS[:1])
+    df = pd.read_csv(d / "L.csv")
+    assert df["qw"].abs().max() > 10000   # really the app's int format
+    fa = W.foot_accel(df, "L")
+    assert np.abs(fa).mean() < 0.05       # gravity removed, nothing saturated
+    unit = df.assign(**{c: df[c] / 16384.0 for c in ("qw", "qx", "qy", "qz")})
+    np.testing.assert_allclose(fa, W.foot_accel(unit, "L"), atol=1e-4)
+
+
+def test_windows_foot_channels_not_saturated(tmp_path):
+    d = make_session(tmp_path / "s", SEG_EVENTS, SEGS)
+    label.label_session(d)
+    xs, ys, _ = windows_script.session_windows(d)
+    x = np.stack(xs)
+    assert len(xs) == len(SEG_EVENTS)
+    assert (np.abs(x[:, :, 6:9]) >= 127).mean() < 0.01
+
+
+def test_synth_writes_app_format(tmp_path):
+    preset = json.loads((ROOT / "presets/basic_step.json").read_text())
+    synth.synth_session("d0", preset, 0, np.random.default_rng(0), tmp_path)
+    d = next(tmp_path.iterdir())
+    df = pd.read_csv(d / "L.csv")
+    assert pd.api.types.is_integer_dtype(df["qw"]) and (df["qw"] == 16384).all()
+    assert np.median(np.diff(df["t_node_us"])) == pytest.approx(1e6 / W.RATE_HZ, abs=1)
+    label.label_session(d)
+    xs, _, _ = windows_script.session_windows(d)
+    assert len(xs) > 10 and (np.abs(np.stack(xs)[:, :, 6:9]) >= 127).mean() < 0.01
+
+
+# ---------------------------------------------------------------- bug 2 ----------
+def test_label_follows_segments(tmp_path):
+    d = make_session(tmp_path / "s", SEG_EVENTS, SEGS)
+    label.label_session(d)
+    assert labels(d) == SEG_TRUTH
+
+
+def test_label_ignoring_segments_would_be_wrong(tmp_path):
+    """Guards the fixture: with only the first segment the rewind/slow-down strikes mislabel."""
+    d = make_session(tmp_path / "s", SEG_EVENTS, SEGS[:1])
+    label.label_session(d)
+    assert labels(d) != SEG_TRUTH
+
+
+def test_label_only_matches_beats_from_segment_start(tmp_path):
+    # Rewind to beat 9 at a tempo where an L strike just after the restart is
+    # 100 ms from beat 3 (L back) on the new timeline but the segment starts at 9.
+    segs = [seg(1, T0, 96.0), seg(9, T0 + 6000, 96.0)]
+    t = beat_t(segs[1], 9) - 200       # inside the segment (start = beat 9 − 250 ms)
+    evs = [ev("L", beat_t(segs[0], 1), FWD), ev("L", t, FWD)]
+    d = make_session(tmp_path / "s", evs, segs)
+    label.label_session(d)
+    assert labels(d) == [FWD, FWD]
+
+
+def test_label_keeps_app_capture_labels(tmp_path):
+    evs = [dict(e) for e in SEG_EVENTS]
+    evs[0].update(label_class=FWD, label_source="capture")     # agrees
+    evs[3].update(label_class=INP, label_source="capture")     # disagrees → conflict, -1
+    evs[4].update(label_class=BACK, label_source="manual")     # manual: untouched
+    d = make_session(tmp_path / "s", evs, SEGS)
+    label.label_session(d)
+    e = pd.read_csv(d / "events.csv", keep_default_na=False)
+    want = list(SEG_TRUTH)
+    want[3], want[4] = -1, BACK
+    assert e["label_class"].tolist() == want
+    assert e["label_source"].tolist()[:5] == ["capture", "capture", "capture", "conflict", "manual"]
+    label.label_session(d)                                       # idempotent
+    assert labels(d) == want
+
+
+# ---------------------------------------------------------------- bug 3 ----------
+def test_unwrap_u32():
+    t = np.array([U32 - 20, U32 - 10, 0, 10, 5, U32 - 5, 3])
+    u = W.unwrap_u32(t)
+    # a late pre-wrap sample (U32 - 5) stays before the wrap rather than jumping 2^32 ahead
+    assert u.tolist() == [U32 - 20, U32 - 10, U32, U32 + 10, U32 + 5, U32 - 5, U32 + 3]
+    # simple monotonic wrap
+    assert W.unwrap_u32([U32 - 2, U32 - 1, 0, 1]).tolist() == [U32 - 2, U32 - 1, U32, U32 + 1]
+    # idempotent on unwrapped data
+    assert W.unwrap_u32([U32 - 1, U32, U32 + 1]).tolist() == [U32 - 1, U32, U32 + 1]
+
+
+def test_pipeline_across_clock_wrap(tmp_path):
+    # Node clock 3 s before the u32 wrap at the start of the stream: it wraps mid-session.
+    a = make_session(tmp_path / "a", SEG_EVENTS, SEGS, node_start_us=1_000_000)
+    b = make_session(tmp_path / "b", SEG_EVENTS, SEGS, node_start_us=U32 - 3_000_000)
+    tb = pd.read_csv(b / "L.csv")["t_node_us"]
+    assert (np.diff(tb) < 0).any()   # really wraps
+    for d in (a, b):
+        label.label_session(d)
+    assert labels(a) == labels(b) == SEG_TRUTH
+    xa, ya, _ = windows_script.session_windows(a)
+    xb, yb, _ = windows_script.session_windows(b)
+    assert len(xa) == len(xb) == len(SEG_EVENTS) and ya == yb
+    np.testing.assert_array_equal(np.stack(xa), np.stack(xb))
+
+
+def test_cut_raw_strike_on_wrapped_stream(tmp_path):
+    b = make_session(tmp_path / "b", SEG_EVENTS, SEGS, node_start_us=U32 - 3_000_000)
+    df = pd.read_csv(b / "R.csv")
+    raw = pd.read_csv(b / "events.csv").query("foot == 'R'")["t_strike_node_us"].iloc[-1]
+    assert raw < U32 // 2   # after the wrap
+    w = W.cut(df, int(raw), "R")
+    assert w is not None and w.shape == (W.WIN_LEN, 9)
+
+
+def test_windows_main_no_windows(tmp_path, monkeypatch):
+    d = make_session(tmp_path / "s", SEG_EVENTS, SEGS, mode="dance")
+    monkeypatch.setattr(sys, "argv", ["windows.py", str(d), "-o", str(tmp_path / "w.npz")])
+    with pytest.raises(SystemExit, match="no windows"):
+        windows_script.main()
+
+
+# ---------------------------------------------------------------- bug 5 ----------
+def test_skip_non_capture_session(tmp_path):
+    d = make_session(tmp_path / "s", SEG_EVENTS, SEGS, mode="dance")
+    before = (d / "events.csv").read_text()
+    label.label_session(d)
+    assert (d / "events.csv").read_text() == before
+    xs, _, _ = windows_script.session_windows(d)
+    assert xs == []
+
+
+def test_skip_missed_rows_keep_none_strikes(tmp_path):
+    evs = [dict(e) for e in SEG_EVENTS]
+    evs[1].update(step_class=StepClass.NONE)
+    evs[2].update(step_class=StepClass.NONE, verdict=Verdict.MISSED)
+    evs[5].update(verdict=Verdict.MISSED)
+    d = make_session(tmp_path / "s", evs, SEGS)
+    label.label_session(d)
+    got = labels(d)
+    # A strike the node called "none" is real and keeps its schedule label; missed beats are skipped.
+    assert got[1] == SEG_TRUTH[1]
+    assert [got[i] for i in (2, 5)] == [-1, -1]
+    xs, ys, _ = windows_script.session_windows(d)
+    keep = [i for i in range(len(evs)) if i not in (2, 5)]
+    assert sorted(ys) == sorted(SEG_TRUTH[i] for i in keep)   # windows come grouped by foot
+
+
+# ------------------------------------- newer export: t_app_ms column, clock_syncs ----------
+def test_app_time_columns_match_old_format(tmp_path):
+    a = make_session(tmp_path / "a", SEG_EVENTS, SEGS, node_start_us=U32 - 3_000_000)
+    b = make_session(tmp_path / "b", SEG_EVENTS, SEGS, node_start_us=U32 - 3_000_000, app_time=True)
+    assert "t_app_ms" in pd.read_csv(b / "events.csv").columns
+    for d in (a, b):
+        label.label_session(d)
+    assert labels(a) == labels(b) == SEG_TRUTH
+    assert "t_app_ms" in pd.read_csv(b / "events.csv").columns   # label.py keeps the column
+    xa, ya, _ = windows_script.session_windows(a)
+    xb, yb, _ = windows_script.session_windows(b)
+    assert ya == yb and len(xb) == len(SEG_EVENTS)
+    np.testing.assert_array_equal(np.stack(xa), np.stack(xb))
+
+
+REBOOT = T0 + 8000   # between beat 3 (first segment) and beat 9 (after the rewind)
+
+
+def test_node_reboot_with_app_time(tmp_path):
+    d = make_session(tmp_path / "s", SEG_EVENTS, SEGS, app_time=True, reboot_at_ms=REBOOT)
+    t = pd.read_csv(d / "L.csv")["t_node_us"]
+    assert (np.diff(t) < 0).any()   # the node clock restarted
+    label.label_session(d)
+    assert labels(d) == SEG_TRUTH
+    xs, ys, _ = windows_script.session_windows(d)
+    assert sorted(ys) == sorted(SEG_TRUTH)   # grouped by foot, so compare as multisets
+    assert (np.abs(np.stack(xs)[:, :, 6:9]) >= 127).mean() < 0.01
+
+
+def test_label_falls_back_to_clock_syncs(tmp_path):
+    """Rows without t_app_ms are timed from the node clock with the offset of the
+    clock sync current at the time, not the last offset in nodes."""
+    d = make_session(tmp_path / "s", SEG_EVENTS, SEGS, app_time=True, reboot_at_ms=REBOOT)
+    e = pd.read_csv(d / "events.csv")
+    e["t_app_ms"] = np.nan
+    e.to_csv(d / "events.csv", index=False)
+    label.label_session(d)
+    assert labels(d) == SEG_TRUTH
+
+
+def test_cut_app_rejects_window_over_gap(tmp_path):
+    d = make_session(tmp_path / "s", SEG_EVENTS, SEGS, app_time=True, reboot_at_ms=REBOOT)
+    df = W.load_stream(d / "L.csv")
+    assert W.cut_app(df, REBOOT + 1000 + 200, "L") is None   # window reaches back into the gap
+    assert W.cut_app(df, REBOOT + 1000 + 2000, "L") is not None
+
+
+def test_window_with_empty_gyro_cells_skipped(tmp_path):
+    """Older exports flushed half batches (accel, empty gyro): no NaN windows."""
+    d = make_session(tmp_path / "s", SEG_EVENTS, SEGS)
+    df = pd.read_csv(d / "L.csv")
+    t = W.unwrap_near(pd.read_csv(d / "events.csv").query("foot == 'L'")["t_strike_node_us"], int(df["t_node_us"][0]))[0]
+    i = int(np.searchsorted(df["t_node_us"], t))
+    assert W.cut(df, int(t), "L") is not None
+    df.loc[i - 3 : i + 1, ["gx", "gy", "gz"]] = np.nan
+    assert W.cut(df, int(t), "L") is None

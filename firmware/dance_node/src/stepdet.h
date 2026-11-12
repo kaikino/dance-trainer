@@ -8,9 +8,13 @@ extern "C" {
 #endif
 
 #define WIN_PRE_SAMPLES   100  // ≈0.96 s before the strike (104 Hz): a slow swing and the stance before it
-#define WIN_POST_SAMPLES  20   // ≈0.19 s after: the foot settling
-#define WIN_LEN           (WIN_PRE_SAMPLES + WIN_POST_SAMPLES)   // 120
+#define WIN_POST_SAMPLES  40   // ≈0.38 s after: the foot settling (heel drop, weight transfer)
+#define WIN_LEN           (WIN_PRE_SAMPLES + WIN_POST_SAMPLES)   // 140
 #define WIN_CHANNELS      9    // ax ay az gx gy gz (sensor) + ax ay az (world)
+// A strike's window reaches the judge WIN_POST_SAMPLES after the landing (swingdet.c
+// emits exactly then: it has always decided by anchor + 35 samples), plus queueing
+// and classification. judge.c waits this long before calling a step missed.
+#define DETECT_LATENCY_MS ((WIN_POST_SAMPLES * 1000 + 103) / 104 + 60)
 
 typedef struct {
     uint32_t t_strike_us;

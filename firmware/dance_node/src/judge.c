@@ -78,12 +78,13 @@ static void emit(dt_step_event_t *e, uint8_t haptic)
     if (haptic) xQueueSend(haptic_q, &haptic, 0);
 }
 
-// Nearest unmatched scheduled step within ±window of t. Returns index or -1.
+// Nearest open scheduled step (not matched, not already reported missed) within
+// ±2 windows of t. Returns index or -1.
 static int nearest(uint32_t t)
 {
     int best = -1; int32_t best_d = 0;
     for (int i = 0; i < J.n; i++) {
-        if (J.steps[i].matched) continue;
+        if (J.steps[i].matched || J.steps[i].reported_missed) continue;
         int32_t d = (int32_t)(t - J.steps[i].t_us) / 1000;
         if (abs(d) <= J.window_ms * 2 && (best < 0 || abs(d) < abs(best_d))) { best = i; best_d = d; }
     }
@@ -121,7 +122,10 @@ static void judge_step(const step_window_t *w)
     }
 }
 
-// Steps whose window closed with no strike are reported as missed.
+// Steps whose window closed with no strike are reported as missed. A strike can be
+// matched up to 2 windows after its beat and reaches this task DETECT_LATENCY_MS
+// after it happened (the detector waits for WIN_POST_SAMPLES after the landing), so
+// a step is only given up after both.
 static void check_missed(void)
 {
     if (J.mode != DT_MODE_DANCE) return;
@@ -129,7 +133,7 @@ static void check_missed(void)
     for (int i = 0; i < J.n; i++) {
         sched_step_t *s = &J.steps[i];
         if (s->matched || s->reported_missed) continue;
-        if ((int32_t)(now - s->t_us) / 1000 > J.window_ms * 2) {
+        if ((int32_t)(now - s->t_us) / 1000 > J.window_ms * 2 + DETECT_LATENCY_MS) {
             s->reported_missed = true;
             dt_step_event_t e = {
                 .t_strike_node_us = s->t_us, .step_class = DT_CLASS_NONE, .confidence = 0,

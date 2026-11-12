@@ -16,7 +16,7 @@
 static const char *TAG = "main";
 
 // Queues between tasks. A full queue means a consumer is stuck.
-QueueHandle_t sample_q;   // imu_sample_t, 100 Hz
+QueueHandle_t sample_q;   // imu_sample_t, 104 Hz
 QueueHandle_t window_q;   // step_window_t, one per foot strike
 QueueHandle_t haptic_q;   // uint8_t pattern
 QueueHandle_t event_q;    // dt_step_event_t
@@ -48,7 +48,7 @@ void app_setup(void)
     xTaskCreate(fusion_task,      "fusion", 1024, NULL, TASK_PRIO_HIGH,   NULL);
     xTaskCreate(fusion_cal_task,  "cal",    1024, NULL, TASK_PRIO_NORMAL, NULL);
     xTaskCreate(detect_task,      "detect", 1024, NULL, TASK_PRIO_NORMAL, NULL);
-    xTaskCreate(infer_judge_task, "judge",  2048, NULL, TASK_PRIO_NORMAL, NULL);   // 120-sample window + rules debug printf
+    xTaskCreate(infer_judge_task, "judge",  2048, NULL, TASK_PRIO_NORMAL, NULL);   // 140-sample window + rules debug printf
     xTaskCreate(haptic_task,      "haptic", 256,  NULL, TASK_PRIO_NORMAL, NULL);
     DT_LOGI(TAG, "tasks started");
 }

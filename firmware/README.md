@@ -26,7 +26,7 @@ The compile-time role is only a default. Over the serial console, `role L` or
 | Command | Does |
 | --- | --- |
 | `status` | role, mode, battery, BLE state, calibration, node clock |
-| `cal` | calibration (same as the app's Calibrate): keep still until it starts by itself, then short buzz = slide the foot forward, three times, bringing it back between slides. Double buzz = done, long buzz = failed (see the log). Each slide's angle is logged |
+| `cal` | calibration (same as the app's Calibrate): stand with the feet parallel and under the hips (about a foot-width between them), weight on both, and keep still until it starts by itself, then short buzz = slide the foot forward, three times, bringing it back between slides. Double buzz = done, long buzz = failed (see the log). Each slide's angle is logged |
 | `calcancel` | stop a calibration and restore the previous one |
 | `buzz [1\|2\|3]` | short / double / long motor pattern |
 | `selftest` | runs the CNN on 20 embedded windows, prints `idx,class,conf,us` |
@@ -57,7 +57,7 @@ strike candidate, so the node's own buzz cannot be mistaken for a step.
 - `board.h` — pin names for the XIAO; `dt_port.h` / `port.cpp` — µs clock (TIMER4), logging, flash blob storage (LittleFS), stored role.
 - `imu.cpp` — onboard LSM6DS3TR-C over `Wire1`, 104 Hz, ±16 g, ±2000 dps, INT1 data-ready.
 - `fusion.c`, `madgwick.c` — 6-axis AHRS, gravity alignment and gyro bias from calibration.
-- `stepdet.c` — cuts the 120×9 int8 window (100 samples before the strike, 20 after) when `swingdet.c` (strike detector: one strike per swing, at the landing, once the foot is planted) fires; `rules.c` — rule classifier (dead reckoning with zero-velocity updates, see `ml/dt/baseline.py`). Serial `rulesdbg on` prints its features per strike (`docs/bench-check.md`).
+- `stepdet.c` — cuts the 140×9 int8 window (100 samples before the strike, 40 after, so the foot has settled) when `swingdet.c` (strike detector: one strike per step, at the landing, emitted 40 samples later) fires; `rules.c` — rule classifier (dead reckoning with zero-velocity updates, see `ml/dt/baseline.py`). Serial `rulesdbg on` prints its features per strike (`docs/bench-check.md`).
 - `cnn.c` — float inference for the `ml/train.py` network; `model_weights.h` and `selftest_vectors.h` are written by `ml/export.py`.
 - `model.c` — classifier dispatch (`-DDT_CLASSIFIER_RULES` selects the rules) and `selftest`.
 - `judge.c` — schedule matching and verdicts; missed-step tick.

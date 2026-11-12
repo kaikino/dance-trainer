@@ -56,10 +56,11 @@ static void cut_window(uint32_t strike_idx, step_window_t *w)
 
 // One strike per swing, at the landing, once the foot is planted (swingdet.c).
 // The window is cut WIN_POST_SAMPLES after the strike, so the latency is
-// ~200 ms after landing (more if the foot settles slowly).
+// ~385 ms after landing (DETECT_LATENCY_MS).
 void detect_task(void *arg)
 {
     static swingdet_t det;
+    static step_window_t w;     // 1.3 KB: static, not on the task stack
     swingdet_init(&det);
     uint32_t next = 0;          // next ring index to examine
 
@@ -78,7 +79,7 @@ void detect_task(void *arg)
         // The motor on this ankle shakes the IMU; it may not start a swing.
         int32_t a = swingdet_feed(&det, idx, f.t_us, acc, gyr, foot, haptic_blanked(f.t_us), WIN_POST_SAMPLES);
         if (a < 0) continue;
-        step_window_t w = { .t_strike_us = 0 };
+        w.t_strike_us = 0;
         fused_sample_t p;
         if (fusion_get((uint32_t)a, &p)) w.t_strike_us = p.t_us;
         cut_window((uint32_t)a, &w);

@@ -5,7 +5,7 @@ compiler, loads it through ctypes, and compares class, confidence and the
 integer features against dt.baseline on random windows, hand-built edge cases
 and windows cut from simulated steps (dt/footsim.py through the firmware
 pipeline in dt/node.py) across all classes, both feet and the stressed ends of
-the adversarial ranges. Also checks that every threshold #define in rules.c
+the adversarial ranges, and from the auditor's two-leg simulator (dt/legsim.py). Also checks that every threshold #define in rules.c
 equals the value dt.baseline.thresholds() derives from the physical constants.
 Run: python -m pytest tests/  (or python tests/test_rules_parity.py)
 """
@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ml"))
 
 from dt import baseline, node  # noqa: E402
+import realsim  # noqa: E402
 from dt import footsim as F  # noqa: E402
 from dt.windows import CHANNELS, WIN_LEN  # noqa: E402
 
@@ -45,7 +46,7 @@ class StepWindow(ctypes.Structure):
 
 
 class Features(ctypes.Structure):   # rules.h rules_features_t
-    _fields_ = [("imp", ctypes.c_int16), ("e", ctypes.c_int16), ("s", ctypes.c_int16), ("how", ctypes.c_uint8),
+    _fields_ = [("imp", ctypes.c_int16), ("e", ctypes.c_int16), ("s", ctypes.c_int16), ("how", ctypes.c_uint8), ("how_e", ctypes.c_uint8),
                 ("dx_cm", ctypes.c_float), ("dy_cm", ctypes.c_float), ("dz_cm", ctypes.c_float),
                 ("zmax_cm", ctypes.c_float), ("pitch_min_deg", ctypes.c_float), ("pitch_range_deg", ctypes.c_float),
                 ("roll_deg", ctypes.c_float), ("swing_ms", ctypes.c_float)]
@@ -57,13 +58,13 @@ def c_classify(lib: ctypes.CDLL, w: np.ndarray) -> tuple:
     conf = ctypes.c_uint8(0)
     f = Features()
     cls = lib.rules_classify_ex(ctypes.byref(sw), ctypes.byref(conf), ctypes.byref(f))
-    return cls, conf.value, (f.imp, f.e, f.s, f.how)
+    return cls, conf.value, (f.imp, f.e, f.s, f.how, f.how_e)
 
 
 def py_classify(w: np.ndarray) -> tuple:
     f = baseline.features(w)
     cls, conf = baseline.decide(f)
-    return int(cls), int(conf), (f["imp"], f["e"], f["s"], f["how"])
+    return int(cls), int(conf), (f["imp"], f["e"], f["s"], f["how"], f["how_e"])
 
 
 def random_windows() -> list[np.ndarray]:
@@ -102,6 +103,13 @@ def simulated_windows() -> list[np.ndarray]:
                 for a in node.detect_swing(tr.fused, node.NEW_DETECTOR):
                     ws.append(node.cut(tr.fused, a, tr.foot == "R", node.NEW_DETECTOR.win_pre,
                                        node.NEW_DETECTOR.win_post))
+    # The auditor's two-leg simulator (dt/legsim.py): both feet, a few stress settings.
+    for k, over in enumerate([{}, dict(p_slide=1.0), dict(p_land={"ball": 1.0}), dict(kick_phi=(20, 35)),
+                              dict(cal_w=0.05), dict(hz_smooth=0.0)]):
+        for st in realsim.gen_routine((900 + k, {**realsim.AUD_REAL, **over}, {}, "test")):
+            for a in node.detect_swing(st["fused"], node.NEW_DETECTOR):
+                ws.append(node.cut(st["fused"], a, st["right"], node.NEW_DETECTOR.win_pre,
+                                   node.NEW_DETECTOR.win_post))
     return ws
 
 

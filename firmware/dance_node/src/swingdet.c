@@ -1,23 +1,33 @@
 // Swing-end strike detector; see swingdet.h. Mirrors ml/dt/node.py detect_swing()
-// exactly (float32, squared magnitudes, no sqrt), checked on simulated streams by
-// ml/tests/test_stepdet_parity.py.
+// exactly (float32, squared magnitudes, the same operation order; sqrtf is exactly
+// rounded), checked on simulated streams by ml/tests/test_stepdet_parity.py.
 #include "swingdet.h"
+#include <math.h>
 #include <string.h>
 
+// No fused multiply-add: the Python port rounds every product, so must the C.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC optimize("fp-contract=off")
+#endif
+
 #define SWD_ACT_GYRO2       (100.0f * 100.0f)   // swing starts: |gyro| > 100 dps ...
-#define SWD_ACT_HI2         (1.4f * 1.4f)       // ... or |a| outside 1 ± 0.4 g
+#define SWD_ACT_HI2         (1.4f * 1.4f)       // ... or |a| outside 1 ± 0.4 g ...
 #define SWD_ACT_LO2         (0.6f * 0.6f)
+#define SWD_ACT_WORLD2      (0.3f * 0.3f)       // ... or |a_world| > 0.3 g (a slide)
 #define SWD_STILL_GYRO2     (60.0f * 60.0f)     // planted (no impact): |gyro| < 60 dps,
 #define SWD_STILL_ACC2      (0.25f * 0.25f)     //   |a_world| < 0.25 g,
-#define SWD_STILL_SOFT      14                  //   14 samples
+#define SWD_STILL_SOFT      20                  //   20 samples
 #define SWD_LOOSE_GYRO2     (200.0f * 200.0f)   // planted right after an impact: < 200 dps,
 #define SWD_LOOSE_ACC2      (0.4f * 0.4f)       //   < 0.4 g,
-#define SWD_STILL_SAMPLES   6                   //   6 samples
+#define SWD_STILL_SAMPLES   8                   //   8 samples
 #define SWD_IMPACT2         (1.25f * 1.25f)     // impact: |a| local peak above 1.25 g ...
-#define SWD_IMPACT_NEAR     8                   // ... within 8 samples before planting
+#define SWD_IMPACT_NEAR     8                   // ... within 8 samples before planting ...
+#define SWD_IMPACT_AFTER    6                   // ... and 6 or more into the swing (not the push-off)
 #define SWD_ANCHOR_BACK     15                  // strike = latest impact this far back
 #define SWD_MIN_SWING       12                  // samples; shorter is a bump
-#define SWD_MIN_GYRO2       (80.0f * 80.0f)     // slower is not a step
+#define SWD_MIN_MOTION      8.48f               // ∫min(|a_world|, 1.5 g) over the swing, g·samples (0.8 m/s)
+#define SWD_MOTION_CAP      1.5f
+#define SWD_GUARD           30                  // samples after a plant where only an impact ends a step
 #define SWD_MAX_SWING       160                 // longer motion without planting is dropped
 #define SWD_PITCH_SIN2      (0.57f * 0.57f)     // planted shank pitched < 35°
 #define SWD_REFRACT_US      200000u
@@ -27,7 +37,6 @@
 void swingdet_init(swingdet_t *d)
 {
     memset(d, 0, sizeof *d);
-    d->pending = -1;
 }
 
 // Latest local peak of v above thr in [lo, hi] (absolute indexes), or -1.
@@ -47,60 +56,71 @@ int32_t swingdet_feed(swingdet_t *d, uint32_t idx, uint32_t t_us, const float ac
     float mag2 = acc[0] * acc[0] + acc[1] * acc[1] + acc[2] * acc[2];
     float gm2 = gyr[0] * gyr[0] + gyr[1] * gyr[1] + gyr[2] * gyr[2];
     float magw2 = foot[0] * foot[0] + foot[1] * foot[1] + foot[2] * foot[2];
+    float magw = fminf(sqrtf(magw2), SWD_MOTION_CAP);   // a one-sample knock is not foot motion
     d->mag2[H(idx)] = mag2;
     d->magw2[H(idx)] = magw2;
     d->t_us[H(idx)] = t_us;
 
-    if (d->pending >= 0) {
-        if (idx >= (uint32_t)d->pending + win_post) {
-            int32_t a = d->pending;
-            d->pending = -1;
-            d->last_us = d->t_us[H(a)];
-            d->have_last = true;
-            return a;
-        }
-        return -1;
+    int32_t ret = -1;
+    if (d->npend > 0 && idx >= d->pend[0] + (uint32_t)win_post) {   // at most one per sample
+        ret = (int32_t)d->pend[0];
+        memmove(d->pend, d->pend + 1, (size_t)(d->npend - 1) * sizeof d->pend[0]);
+        d->npend--;
     }
-    bool active = !blanked && (gm2 > SWD_ACT_GYRO2 || mag2 > SWD_ACT_HI2 || mag2 < SWD_ACT_LO2);
+
+    bool active = !blanked && (gm2 > SWD_ACT_GYRO2 || mag2 > SWD_ACT_HI2 || mag2 < SWD_ACT_LO2
+                               || magw2 > SWD_ACT_WORLD2);
     bool upright = acc[0] * acc[0] < SWD_PITCH_SIN2 * mag2;
     bool quiet = upright && magw2 < SWD_STILL_ACC2 && gm2 < SWD_STILL_GYRO2;
     bool loose = upright && magw2 < SWD_LOOSE_ACC2 && gm2 < SWD_LOOSE_GYRO2;
     if (!d->moving) {
         if (active) {
-            d->moving = true; d->start = idx; d->gpk2 = gm2; d->still_run = 0; d->loose_run = 0;
+            d->moving = true; d->start = idx; d->still_run = 0; d->loose_run = 0;
+            d->mot = magw; d->still_sum = 0.0f; d->loose_sum = 0.0f;
         }
-        return -1;
+        return ret;
     }
-    if (gm2 > d->gpk2) d->gpk2 = gm2;
-    d->still_run = quiet ? d->still_run + 1 : 0;
-    d->loose_run = loose ? d->loose_run + 1 : 0;
-    bool settled = false;
+    d->mot = d->mot + magw;
+    if (quiet) { d->still_run++; d->still_sum = d->still_sum + magw; }
+    else { d->still_run = 0; d->still_sum = 0.0f; }
+    if (loose) { d->loose_run++; d->loose_sum = d->loose_sum + magw; }
+    else { d->loose_run = 0; d->loose_sum = 0.0f; }
+
+    bool settled = false, impact = false;
     uint32_t end = 0;
+    float m = 0.0f;
     if (d->loose_run == SWD_STILL_SAMPLES) {
         end = idx - d->loose_run + 1;
-        uint32_t lo = end >= d->start + SWD_IMPACT_NEAR ? end - SWD_IMPACT_NEAR : d->start;
-        settled = latest_peak(d->mag2, lo, end, SWD_IMPACT2) >= 0;
+        uint32_t lo = end >= SWD_IMPACT_NEAR ? end - SWD_IMPACT_NEAR : 0;
+        if (lo < d->start + SWD_IMPACT_AFTER) lo = d->start + SWD_IMPACT_AFTER;
+        if (lo <= end && latest_peak(d->mag2, lo, end, SWD_IMPACT2) >= 0) {
+            settled = true; impact = true; m = d->mot - d->loose_sum;
+        }
     }
     if (!settled && d->still_run >= SWD_STILL_SOFT) {
         end = idx - d->still_run + 1;
-        settled = true;
+        settled = true; m = d->mot - d->still_sum;
     }
     if (settled) {
         d->moving = false;
-        if (end - d->start < SWD_MIN_SWING || d->gpk2 < SWD_MIN_GYRO2) return -1;
+        if (end - d->start < SWD_MIN_SWING || m < SWD_MIN_MOTION) return ret;
+        if (!impact && d->have_end && d->start - d->last_end < SWD_GUARD) return ret;
         uint32_t lo = end >= d->start + SWD_ANCHOR_BACK ? end - SWD_ANCHOR_BACK : d->start;
         int32_t a = latest_peak(d->mag2, lo, end, SWD_IMPACT2);
         if (a < 0) a = latest_peak(d->magw2, lo, end, 0.0f);   // soft landing: last deceleration
         if (a < 0) a = (int32_t)(end >= d->start + 3 ? end - 3 : d->start);
-        if (d->have_last && d->t_us[H(a)] - d->last_us <= SWD_REFRACT_US) return -1;
-        if (idx >= (uint32_t)a + win_post) {
-            d->last_us = d->t_us[H(a)];
-            d->have_last = true;
-            return a;
+        if (d->have_last && d->t_us[H(a)] - d->last_us <= SWD_REFRACT_US) return ret;
+        d->last_us = d->t_us[H(a)];
+        d->have_last = true;
+        d->last_end = end;
+        d->have_end = true;
+        if (d->npend == SWD_MAX_PEND) {     // cannot happen (refractory vs win_post); keep the newest
+            memmove(d->pend, d->pend + 1, (SWD_MAX_PEND - 1) * sizeof d->pend[0]);
+            d->npend--;
         }
-        d->pending = a;
+        d->pend[d->npend++] = (uint32_t)a;  // a + win_post > idx: anchor_back + still_soft < win_post
     } else if (idx - d->start > SWD_MAX_SWING) {
         d->moving = false;
     }
-    return -1;
+    return ret;
 }
