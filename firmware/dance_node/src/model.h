@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <stdbool.h>
 #include "stepdet.h"
 
 #ifdef __cplusplus
@@ -10,6 +11,11 @@ extern "C" {
 // the rule classifier when built with -DDT_CLASSIFIER_RULES.
 dt_step_class_t classify(const step_window_t *w, uint8_t *confidence);
 const char *classifier_name(void);
+
+// Per-strike rule features over serial (`rulesdbg on|off`, or build with
+// RULESDBG=1). See docs/bench-check.md.
+void rules_debug_set(bool on);
+bool rules_debug(void);
 
 // Runs the CNN on the embedded test windows and prints idx,class,conf,us over
 // serial. Compare with `ml/export.py --selftest`.

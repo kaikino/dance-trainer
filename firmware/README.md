@@ -57,7 +57,7 @@ strike candidate, so the node's own buzz cannot be mistaken for a step.
 - `board.h` — pin names for the XIAO; `dt_port.h` / `port.cpp` — µs clock (TIMER4), logging, flash blob storage (LittleFS), stored role.
 - `imu.cpp` — onboard LSM6DS3TR-C over `Wire1`, 104 Hz, ±16 g, ±2000 dps, INT1 data-ready.
 - `fusion.c`, `madgwick.c` — 6-axis AHRS, gravity alignment and gyro bias from calibration.
-- `stepdet.c` — foot-strike detector and 60×9 int8 window cutter; `rules.c` — rule classifier.
+- `stepdet.c` — cuts the 120×9 int8 window (100 samples before the strike, 20 after) when `swingdet.c` (strike detector: one strike per swing, at the landing, once the foot is planted) fires; `rules.c` — rule classifier (dead reckoning with zero-velocity updates, see `ml/dt/baseline.py`). Serial `rulesdbg on` prints its features per strike (`docs/bench-check.md`).
 - `cnn.c` — float inference for the `ml/train.py` network; `model_weights.h` and `selftest_vectors.h` are written by `ml/export.py`.
 - `model.c` — classifier dispatch (`-DDT_CLASSIFIER_RULES` selects the rules) and `selftest`.
 - `judge.c` — schedule matching and verdicts; missed-step tick.

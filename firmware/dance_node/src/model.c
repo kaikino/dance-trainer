@@ -1,5 +1,6 @@
 #include "model.h"
 #include "cnn.h"
+#include "rules.h"
 #include "dt_port.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,14 +15,42 @@ static dt_step_class_t cnn_classify(const int8_t x[WIN_LEN][WIN_CHANNELS], uint8
     return (dt_step_class_t)best;
 }
 
+#ifdef DT_RULES_DEBUG
+static volatile bool rules_dbg = true;
+#else
+static volatile bool rules_dbg = false;
+#endif
+void rules_debug_set(bool on) { rules_dbg = on; }
+bool rules_debug(void) { return rules_dbg; }
+
+static const char *const class_names[DT_CLASS_COUNT] = {
+    "none", "in_place", "forward", "back", "side_out", "cross", "kick", "side_in",
+};
+
+// One line per strike with what the rule saw (docs/bench-check.md). Printed for
+// both classifiers, so the CNN can be compared with the rule on the same step.
+static void rules_print(const step_window_t *w, dt_step_class_t used, uint8_t used_conf)
+{
+    rules_features_t f;
+    uint8_t rc;
+    dt_step_class_t r = rules_classify_ex(w, &rc, &f);
+    printf("rules t=%lu %s conf=%u | dx=%.1f dy=%.1f dz=%.1f cm zmax=%.1f cm pitch=%.0f range=%.0f roll=%.1f deg "
+           "swing=%.0f ms zupt=%u imp=%d s=%d e=%d | %s=%s %u\n",
+           (unsigned long)w->t_strike_us, class_names[r], (unsigned)rc, f.dx_cm, f.dy_cm, f.dz_cm, f.zmax_cm,
+           f.pitch_min_deg, f.pitch_range_deg, f.roll_deg, f.swing_ms, (unsigned)f.how, f.imp, f.s, f.e,
+           classifier_name(), class_names[used], (unsigned)used_conf);
+}
+
 dt_step_class_t classify(const step_window_t *w, uint8_t *confidence)
 {
 #ifdef DT_CLASSIFIER_RULES
-    return rules_classify(w, confidence);
+    dt_step_class_t c = rules_classify(w, confidence);
 #else
     uint32_t us;
-    return cnn_classify(w->x, confidence, &us);
+    dt_step_class_t c = cnn_classify(w->x, confidence, &us);
 #endif
+    if (rules_dbg) rules_print(w, c, *confidence);
+    return c;
 }
 
 const char *classifier_name(void)

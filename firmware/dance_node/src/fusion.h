@@ -25,8 +25,8 @@ typedef struct {
     imu_sample_t raw;          // sensor frame as defined above, NOT mirrored
 } fused_sample_t;
 
-// Ring buffer shared with stepdet and the BLE stream. 2 s at 100 Hz.
-#define FUSION_RING_LEN 200
+// Ring buffer shared with stepdet and the BLE stream.
+#define FUSION_RING_LEN 256   // ≈2.5 s; stepdet cuts 100 samples back from a strike up to ~30 samples old
 
 void fusion_init(dt_role_t role);             // loads calibration from flash if present
 void fusion_task(void *arg);                  // sample_q → ring

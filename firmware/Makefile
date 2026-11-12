@@ -5,6 +5,7 @@
 #   make flash PORT=/dev/cu.usbmodemXXXX [ROLE=R]
 #   make monitor PORT=/dev/cu.usbmodemXXXX
 #   make CLASSIFIER=rules   use the rule classifier instead of the CNN
+#   make RULESDBG=1         print the rule's features per strike from boot (else `rulesdbg on`)
 #
 # A stored role (serial command `role L|R`) overrides the compile-time default,
 # so one build can serve both nodes once each has been told which ankle it is.
@@ -21,6 +22,9 @@ DEFS += -DDT_DEFAULT_ROLE_RIGHT
 endif
 ifeq ($(CLASSIFIER),rules)
 DEFS += -DDT_CLASSIFIER_RULES
+endif
+ifeq ($(RULESDBG),1)
+DEFS += -DDT_RULES_DEBUG
 endif
 
 # The core's post-build hooks call "python"; Homebrew's python@3.12 provides that name.

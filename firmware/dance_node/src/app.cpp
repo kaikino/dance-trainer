@@ -48,14 +48,14 @@ void app_setup(void)
     xTaskCreate(fusion_task,      "fusion", 1024, NULL, TASK_PRIO_HIGH,   NULL);
     xTaskCreate(fusion_cal_task,  "cal",    1024, NULL, TASK_PRIO_NORMAL, NULL);
     xTaskCreate(detect_task,      "detect", 1024, NULL, TASK_PRIO_NORMAL, NULL);
-    xTaskCreate(infer_judge_task, "judge",  1536, NULL, TASK_PRIO_NORMAL, NULL);
+    xTaskCreate(infer_judge_task, "judge",  2048, NULL, TASK_PRIO_NORMAL, NULL);   // 120-sample window + rules debug printf
     xTaskCreate(haptic_task,      "haptic", 256,  NULL, TASK_PRIO_NORMAL, NULL);
     DT_LOGI(TAG, "tasks started");
 }
 
 static void help(void)
 {
-    Serial.println("commands: status | cal | calcancel | buzz [1|2|3] | selftest | role L|R | reboot | help");
+    Serial.println("commands: status | cal | calcancel | buzz [1|2|3] | selftest | rulesdbg on|off | role L|R | reboot | help");
 }
 
 static void handle(char *line)
@@ -77,6 +77,9 @@ static void handle(char *line)
         xQueueSend(haptic_q, &p, 0);
     } else if (!strcmp(line, "selftest")) {
         model_selftest();
+    } else if (!strcmp(line, "rulesdbg")) {
+        if (arg) rules_debug_set(!strcmp(arg, "on") || !strcmp(arg, "1"));
+        Serial.printf("rulesdbg %s\n", rules_debug() ? "on" : "off");
     } else if (!strcmp(line, "role") && arg && (arg[0] == 'L' || arg[0] == 'R')) {
         storage_save("role", arg, 1);
         Serial.printf("role %c stored; rebooting\n", arg[0]);

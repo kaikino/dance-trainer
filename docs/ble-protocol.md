@@ -138,4 +138,4 @@ the foot frame from them with the same math as the firmware.
 | raw sensor | IMU axes as mounted | inside `imu` only |
 | aligned sensor | raw rotated so gravity at the calibration pose is +z | capture stream, model channels 0–5 |
 | world | aligned sensor rotated by the Madgwick quaternion | intermediate |
-| foot | world with yaw removed (+x = toe), gravity removed, y mirrored for L | dance stream, model channels 6–8, rule classifier |
+| foot | world with yaw removed (+x = toe), gravity removed, y mirrored on the right node (+y = outward on both feet) | dance stream, model channels 6–8, rule classifier |

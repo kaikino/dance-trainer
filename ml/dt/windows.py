@@ -2,15 +2,16 @@
 import numpy as np
 import pandas as pd
 
-RATE_HZ = 100
-WIN_PRE = 40
-WIN_POST = 20
+RATE_HZ = 104          # LSM6DS3 ODR; the firmware takes every sample
+WIN_PRE = 100          # ≈0.96 s before the strike: a slow swing plus the stance before it
+WIN_POST = 20          # ≈0.19 s after: the foot settling (rules.c needs it planted)
 WIN_LEN = WIN_PRE + WIN_POST
 CHANNELS = ["ax", "ay", "az", "gx", "gy", "gz", "ax_f", "ay_f", "az_f"]
 
-# Per-channel full-scale for int8: value_int8 = round(v / scale * 127).
-# export.py writes these into firmware/components/model/model_scales.h.
-SCALES = np.array([16, 16, 16, 2000, 2000, 2000, 8, 8, 8], dtype=np.float32)
+# Per-channel full-scale for int8: value_int8 = round(v / scale * 127). Sensor accel
+# is 8 g (not the IMU's 16 g range) so the shank tilt in stance resolves to 3.6°
+# per LSB; rules.c reads it. Duplicated in stepdet.c and model_weights.h (export.py).
+SCALES = np.array([8, 8, 8, 2000, 2000, 2000, 8, 8, 8], dtype=np.float32)
 
 # The node's calibrated sensor frame is +x toe, +z up, so +y is the dancer's left.
 # The RIGHT foot is mirrored so +y = outward on both feet. Same as fusion.c/stepdet.c.
