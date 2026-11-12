@@ -72,8 +72,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
     if (mounted) setState(() {});
   }
 
-  void _openLiveView() =>
-      Navigator.push(context, MaterialPageRoute(builder: (_) => LiveViewScreen(manager: m)));
+  void _openLiveView() => Navigator.push(context, MaterialPageRoute(builder: (_) => LiveViewScreen(manager: m)));
 
   void _snack(String s, {SnackBarAction? action}) {
     if (!mounted) return;
@@ -95,17 +94,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
     // One filled (primary) button for the next thing to do, the rest outlined.
     final scan = (
       label: _scanning ? 'Scanning…' : (connected.isEmpty ? 'Scan for nodes' : 'Scan again'),
-      icon: Icons.bluetooth_searching,
+      icon: Icons.bluetooth_searching_rounded,
       onPressed: _scanning ? null : _scan,
     );
     final calibrate = (
       label: needCal.isEmpty ? 'Calibrate again' : (needCal.length == 2 ? 'Calibrate both feet' : 'Calibrate'),
-      icon: Icons.straighten,
+      icon: Icons.straighten_rounded,
       onPressed: connected.isEmpty ? null : () => _calibrate(needCal.isEmpty ? connected : needCal),
     );
     final routine = (
       label: 'Choose a routine',
-      icon: Icons.queue_music,
+      icon: Icons.queue_music_rounded,
       onPressed: connected.isEmpty ? null : _openRoutines,
     );
     final (primary, secondary) = !allConnected
@@ -123,11 +122,29 @@ class _ConnectScreenState extends State<ConnectScreen> {
             icon: const Icon(Icons.help_outline_rounded),
             label: const Text('How to wear'),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: Space.sm),
+        ],
+      ),
+      bottomNavigationBar: BottomActions(
+        stackOnPhone: true,
+        children: [
+          FilledButton.icon(
+            onPressed: primary.onPressed,
+            icon: _scanning && primary == scan
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : Icon(primary.icon),
+            label: Text(primary.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+          for (final b in secondary)
+            OutlinedButton.icon(
+              onPressed: b.onPressed,
+              icon: Icon(b.icon),
+              label: Text(b.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(Space.gutter(context)),
         children: [
           ContentWidth(
             child: Column(
@@ -139,31 +156,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
                       : 'Switch both ankle nodes on, then scan.',
                   style: theme.textTheme.bodyLarge,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: Space.lg),
                 for (final n in m.nodes) _nodeCard(n),
-                const SizedBox(height: 24),
-                SizedBox(
-                  height: 56,
-                  child: FilledButton.icon(
-                    onPressed: primary.onPressed,
-                    icon: _scanning && primary == scan
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : Icon(primary.icon),
-                    label: Text(primary.label),
-                  ),
-                ),
-                for (final b in secondary) ...[
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 52,
-                    child: OutlinedButton.icon(onPressed: b.onPressed, icon: Icon(b.icon), label: Text(b.label)),
-                  ),
-                ],
                 if (!allConnected && connected.isNotEmpty)
                   Padding(
-                    padding: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.only(top: Space.xs),
                     child: Text('Only one ankle connected: it will be judged alone.',
-                        style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                        style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                   ),
               ],
             ),
@@ -176,18 +175,19 @@ class _ConnectScreenState extends State<ConnectScreen> {
   Widget _nodeCard(NodeClient n) {
     final st = n.status;
     final theme = Theme.of(context);
-    final warn = warnColor(context);
+    final warn = StatusColors.warn(context);
     final calPill = switch (calStateOf(st)) {
       CalState.unknown => null,
-      CalState.boardMoved => StatusPill(icon: Icons.error_outline, text: 'Board moved', color: warn),
-      CalState.calibrated => StatusPill(icon: Icons.check_circle, text: 'Calibrated', color: okColor(context)),
-      CalState.tiltOnly => StatusPill(icon: Icons.error_outline, text: 'Tilt only', color: warn),
-      CalState.notCalibrated => StatusPill(icon: Icons.error_outline, text: 'Needs calibration', color: warn),
+      CalState.boardMoved => StatusPill(icon: Icons.error_rounded, text: 'Board moved', color: warn),
+      CalState.calibrated =>
+        StatusPill(icon: Icons.check_circle_rounded, text: 'Calibrated', color: StatusColors.ok(context)),
+      CalState.tiltOnly => StatusPill(icon: Icons.error_rounded, text: 'Tilt only', color: warn),
+      CalState.notCalibrated => StatusPill(icon: Icons.error_rounded, text: 'Needs calibration', color: warn),
     };
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: Space.md),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(Space.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -197,21 +197,24 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   radius: 24,
                   backgroundColor: n.connected ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest,
                   foregroundColor: n.connected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
-                  child: Text(n.roleLabel, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                  child: Text(n.roleLabel,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                          color: n.connected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
+                          fontWeight: AppType.heavy)),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: Space.lg),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('${footName(n.role)} ankle', style: theme.textTheme.titleLarge),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: Space.sm),
                       Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
+                        spacing: Space.sm,
+                        runSpacing: Space.sm,
                         children: [
                           if (!n.connected)
-                            const StatusPill(icon: Icons.bluetooth_disabled, text: 'Not connected')
+                            const StatusPill(icon: Icons.bluetooth_disabled_rounded, text: 'Not connected')
                           else ...[
                             if (st != null) StatusPill(icon: _batteryIcon(st.batteryPct), text: '${st.batteryPct}%'),
                             if (calPill != null) calPill,
@@ -224,24 +227,24 @@ class _ConnectScreenState extends State<ConnectScreen> {
               ],
             ),
             if (n.connected) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: Space.md),
               Wrap(
-                spacing: 8,
-                runSpacing: 4,
+                spacing: Space.sm,
+                runSpacing: Space.xs,
                 children: [
                   TextButton.icon(
                     onPressed: () => _calibrate([n]),
-                    icon: const Icon(Icons.straighten, size: 18),
+                    icon: const Icon(Icons.straighten_rounded, size: 18),
                     label: const Text('Calibrate'),
                   ),
                   TextButton.icon(
                     onPressed: _openLiveView,
-                    icon: const Icon(Icons.threed_rotation, size: 18),
+                    icon: const Icon(Icons.threed_rotation_rounded, size: 18),
                     label: const Text('Live view'),
                   ),
                   TextButton.icon(
                     onPressed: () => n.buzzTest(Haptic.double),
-                    icon: const Icon(Icons.vibration, size: 18),
+                    icon: const Icon(Icons.vibration_rounded, size: 18),
                     label: const Text('Buzz'),
                   ),
                 ],
@@ -257,10 +260,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
   }
 
   static IconData _batteryIcon(int pct) => switch (pct) {
-        >= 90 => Icons.battery_full,
-        >= 60 => Icons.battery_5_bar,
-        >= 35 => Icons.battery_3_bar,
-        >= 15 => Icons.battery_2_bar,
-        _ => Icons.battery_alert,
+        >= 90 => Icons.battery_full_rounded,
+        >= 60 => Icons.battery_5_bar_rounded,
+        >= 35 => Icons.battery_3_bar_rounded,
+        >= 15 => Icons.battery_2_bar_rounded,
+        _ => Icons.battery_alert_rounded,
       };
 }

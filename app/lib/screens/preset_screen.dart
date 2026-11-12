@@ -26,8 +26,8 @@ class PresetScreen extends StatefulWidget {
 class _PresetScreenState extends State<PresetScreen> {
   List<Preset>? _presets;
   Preset? _selected;
-  SessionKind _kind = SessionKind.values.where((k) => k.name == AppSettings.lastKind).firstOrNull ??
-      SessionKind.performance;
+  SessionKind _kind =
+      SessionKind.values.where((k) => k.name == AppSettings.lastKind).firstOrNull ?? SessionKind.performance;
   final _dancer = TextEditingController(text: 'dancer');
 
   /// Past sessions, for the best score on each card.
@@ -132,7 +132,7 @@ class _PresetScreenState extends State<PresetScreen> {
             icon: const Icon(Icons.info_outline_rounded),
             tooltip: 'What the steps mean',
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: Space.sm),
         ],
       ),
       bottomNavigationBar: presets == null
@@ -166,7 +166,7 @@ class _PresetScreenState extends State<PresetScreen> {
           : LayoutBuilder(builder: (context, c) {
               final wide = c.maxWidth >= 900;
               return ListView(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                padding: EdgeInsets.fromLTRB(Space.gutter(context), 0, Space.gutter(context), Space.xl),
                 children: [
                   ContentWidth(
                     maxWidth: wide ? 1100 : 720,
@@ -181,7 +181,7 @@ class _PresetScreenState extends State<PresetScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Expanded(child: _mode(context)),
-                              const SizedBox(width: 24),
+                              const SizedBox(width: Space.xl),
                               Expanded(child: _tempoSection(context)),
                             ],
                           )
@@ -195,13 +195,13 @@ class _PresetScreenState extends State<PresetScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Expanded(child: _sound(context)),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: Space.md),
                               Expanded(child: _advanced(context)),
                             ],
                           )
                         else ...[
                           _sound(context),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: Space.md),
                           _advanced(context),
                         ],
                       ],
@@ -217,15 +217,14 @@ class _PresetScreenState extends State<PresetScreen> {
     final theme = Theme.of(context);
     final needCal = _needCalibration;
     Widget card(IconData icon, String title, String subtitle, Widget? action) => Padding(
-          padding: const EdgeInsets.only(top: 16),
+          padding: const EdgeInsets.only(top: Space.lg),
           child: Card(
             color: theme.colorScheme.errorContainer,
             child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              contentPadding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.xs),
               leading: Icon(icon, color: theme.colorScheme.onErrorContainer),
-              title: Text(title,
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(color: theme.colorScheme.onErrorContainer, fontWeight: FontWeight.w700)),
+              title:
+                  Text(title, style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onErrorContainer)),
               subtitle: Text(subtitle, style: TextStyle(color: theme.colorScheme.onErrorContainer)),
               trailing: action,
             ),
@@ -273,7 +272,7 @@ class _PresetScreenState extends State<PresetScreen> {
     ];
     if (!wide) {
       return Column(
-        children: [for (final c in cards) Padding(padding: const EdgeInsets.only(bottom: 12), child: c)],
+        children: [for (final c in cards) Padding(padding: const EdgeInsets.only(bottom: Space.md), child: c)],
       );
     }
     return IntrinsicHeight(
@@ -281,7 +280,7 @@ class _PresetScreenState extends State<PresetScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (var i = 0; i < cards.length; i++) ...[
-            if (i > 0) const SizedBox(width: 12),
+            if (i > 0) const SizedBox(width: Space.md),
             Expanded(child: cards[i]),
           ],
         ],
@@ -296,7 +295,7 @@ class _PresetScreenState extends State<PresetScreen> {
       children: [
         const SectionHeader('Mode'),
         SizedBox(
-          height: 56,
+          height: Sizes.button,
           child: SegmentedButton<SessionKind>(
             segments: [
               for (final k in [SessionKind.performance, SessionKind.practice])
@@ -305,16 +304,14 @@ class _PresetScreenState extends State<PresetScreen> {
             selected: {if (_kind != SessionKind.capture) _kind},
             emptySelectionAllowed: true,
             showSelectedIcon: false,
-            style: SegmentedButton.styleFrom(textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
             onSelectionChanged: (s) {
               if (s.isNotEmpty) setState(() => _kind = s.first);
               _remember();
             },
           ),
         ),
-        const SizedBox(height: 10),
-        Text(_kind.description,
-            style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        const SizedBox(height: Space.sm),
+        Text(_kind.description, style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
       ],
     );
   }
@@ -327,31 +324,32 @@ class _PresetScreenState extends State<PresetScreen> {
       if (save) _remember();
     }
 
-    // Slow is Practice's starting tempo; Normal is as written.
-    Widget preset(String label, double v) => ChoiceChip(
-          label: Text(label),
-          selected: (_tempo - v).abs() < 0.001,
-          showCheckmark: false,
-          visualDensity: VisualDensity.compact,
-          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          onSelected: (_) => set(v, save: true),
-        );
+    // Slow is Practice's starting tempo; Normal is as written. The same
+    // toggle style as the mode above.
+    final presets = {'Slow': practiceTempo, 'Normal': 1.0};
+    final current = presets.entries.where((e) => (_tempo - e.value).abs() < 0.001).map((e) => e.value).toSet();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SectionHeader(
           'Tempo',
-          trailing: Wrap(spacing: 8, children: [preset('Slow', practiceTempo), preset('Normal', 1.0)]),
+          trailing: SegmentedButton<double>(
+            segments: [for (final e in presets.entries) ButtonSegment(value: e.value, label: Text(e.key))],
+            selected: current,
+            emptySelectionAllowed: true,
+            showSelectedIcon: false,
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+            onSelectionChanged: (sel) {
+              if (sel.isNotEmpty) set(sel.first, save: true);
+            },
+          ),
         ),
         Row(
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
           children: [
-            Text(bpm == null ? '–' : '$bpm',
-                style: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w800, color: theme.colorScheme.primary)),
-            const SizedBox(width: 6),
+            Text(bpm == null ? '–' : '$bpm', style: theme.textTheme.display.copyWith(color: theme.colorScheme.primary)),
+            const SizedBox(width: Space.sm),
             Text('bpm', style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.primary)),
             const Spacer(),
             Text((_tempo - 1.0).abs() < 0.001 ? 'as written' : '${(_tempo * 100).round()}% speed',
@@ -369,7 +367,7 @@ class _PresetScreenState extends State<PresetScreen> {
               max: 1.2,
               divisions: 12,
               label: bpm == null ? '${(_tempo * 100).round()}%' : '$bpm bpm',
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(vertical: Space.md),
               onChanged: set,
               onChangeEnd: (v) => set(v, save: true),
             ),
@@ -381,7 +379,7 @@ class _PresetScreenState extends State<PresetScreen> {
 
   Widget _sound(BuildContext context) => Card(
         child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          contentPadding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.sm),
           leading: const Icon(Icons.graphic_eq_rounded),
           title: const Text('Sound sync'),
           subtitle: Text(AppSettings.audioDelayMeasured
@@ -405,7 +403,7 @@ class _PresetScreenState extends State<PresetScreen> {
           subtitle: Text(_kind == SessionKind.capture ? 'Capture selected' : 'Recording for training'),
           initiallyExpanded: _kind == SessionKind.capture,
           shape: const Border(),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          childrenPadding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.lg),
           children: [
             RadioGroup<SessionKind>(
               groupValue: _kind,
@@ -461,14 +459,14 @@ class _RoutineCard extends StatelessWidget {
       child: Material(
         color: selected ? scheme.primaryContainer : scheme.surfaceContainer,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: Radii.lgAll,
           side: BorderSide(color: selected ? scheme.primary : Colors.transparent, width: 2.5),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.fromLTRB(Space.lg, Space.lg, Space.lg, Space.sm),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -477,26 +475,28 @@ class _RoutineCard extends StatelessWidget {
                     Expanded(
                       child: Text(preset.name,
                           style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800, color: selected ? scheme.onPrimaryContainer : null)),
+                              fontWeight: AppType.heavy, color: selected ? scheme.onPrimaryContainer : null)),
                     ),
-                    Icon(selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                    Icon(selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
                         color: selected ? scheme.primary : scheme.outline),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text('${preset.bpm.round()} bpm · ${preset.bars} bars · ${(preset.lastBeat * preset.beatMs / 1000).round()} s',
+                const SizedBox(height: Space.xs),
+                Text(
+                    '${preset.bpm.round()} bpm · ${preset.bars} bars · ${(preset.lastBeat * preset.beatMs / 1000).round()} s',
                     style: theme.textTheme.bodyLarge?.copyWith(color: scheme.onSurfaceVariant)),
-                const SizedBox(height: 14),
+                const SizedBox(height: Space.md),
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 300),
                   child: StepPatternPreview(preset: preset, color: selected ? scheme.primary : scheme.secondary),
                 ),
                 if (fill) const Spacer(),
-                const SizedBox(height: 8),
+                const SizedBox(height: Space.sm),
                 Row(
                   children: [
                     if (b != null)
-                      StatusPill(icon: Icons.emoji_events_rounded, text: 'Best ${(b * 100).round()}%', color: accuracyColor(context, b))
+                      StatusPill(
+                          icon: Icons.emoji_events_rounded, text: 'Best ${(b * 100).round()}%', color: scheme.primary)
                     else
                       Text(sessions == 0 ? 'Not danced yet' : 'No full run yet',
                           style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),

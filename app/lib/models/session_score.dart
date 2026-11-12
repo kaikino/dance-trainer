@@ -152,11 +152,33 @@ class SessionScore {
       });
   }
 
-  /// Nearest scheduled step for [foot] in the current segment within 0.75 beat.
-  int? stepAt(Role foot, double beat) => preset.nearestStep(foot, beat, within: 0.75, fromBeat: fromBeat);
+  /// How far from a step's beat an event is still taken as that step.
+  static const nearWithin = 0.75;
 
-  /// Scores one event from [foot] whose strike fell on [beat] (fractional).
-  ScoredEvent add(Role foot, StepEvent e, double beat) {
+  /// Nearest scheduled step for [foot] in the current segment within [within] beats.
+  int? stepAt(Role foot, double beat, {double within = nearWithin}) =>
+      preset.nearestStep(foot, beat, within: within, fromBeat: fromBeat);
+
+  /// A judged event is matched to its step within this much of the step's
+  /// time: only the node's rounding of the timing error and clock jitter.
+  static const judgedSlackMs = 40.0;
+
+  /// Scores one event from [foot] whose strike was [strikeMs] after beat 1
+  /// of the current segment, at [beatMs] per beat.
+  ///
+  /// A judged event is placed at the step the node judged it against (the
+  /// strike minus its timing error), not at the strike: a stray tap just
+  /// after a step is judged by the node against the next step, and must not
+  /// overwrite the step just danced. Other events go to the nearest step.
+  ScoredEvent addStrike(Role foot, StepEvent e, {required double strikeMs, required double beatMs}) {
+    if (e.expectedClass == StepClass.none) return add(foot, e, 1 + strikeMs / beatMs);
+    return add(foot, e, 1 + (strikeMs - e.timingErrMs) / beatMs, within: judgedSlackMs / beatMs);
+  }
+
+  /// Scores one event from [foot] that belongs to the step nearest [beat]
+  /// (fractional), at most [within] beats away. The caller places a judged
+  /// event at the step the node judged it against (see DanceSession).
+  ScoredEvent add(Role foot, StepEvent e, double beat, {double within = nearWithin}) {
     final last = _lastSeq[foot];
     // u16 counter: newer means 1..32767 ahead, modulo 2^16.
     if (last != null) {
@@ -169,7 +191,7 @@ class SessionScore {
       extras++;
       return (fate: EventFate.extra, step: null);
     }
-    final i = stepAt(foot, beat);
+    final i = stepAt(foot, beat, within: within);
     if (i == null) return (fate: EventFate.unmatched, step: null);
     if (latest[i] case final old?) _counts.update(old.verdict, (n) => n - 1);
     latest[i] = e;

@@ -42,7 +42,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   final overview = _Overview(entries: entries, wide: wide);
                   final list = _SessionList(entries: entries);
                   return ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    padding: EdgeInsets.fromLTRB(Space.gutter(context), Space.sm, Space.gutter(context), Space.xl),
                     children: [
                       ContentWidth(
                         maxWidth: wide ? 1100 : 720,
@@ -51,7 +51,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Expanded(flex: 5, child: overview),
-                                  const SizedBox(width: 32),
+                                  const SizedBox(width: Space.xxl),
                                   Expanded(flex: 6, child: list),
                                 ],
                               )
@@ -67,14 +67,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final theme = Theme.of(context);
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.all(Space.xxl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.history_rounded, size: 64, color: theme.colorScheme.outline),
-            const SizedBox(height: 12),
+            const SizedBox(height: Space.md),
             Text('No sessions yet', style: theme.textTheme.headlineSmall),
-            const SizedBox(height: 6),
+            const SizedBox(height: Space.sm),
             Text('Dance this routine and your scores will show up here.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
@@ -98,16 +98,16 @@ class _Overview extends StatelessWidget {
     final full = entries.where((e) => e.complete).length;
     final last = entries.where((e) => e.complete && e.headline != null).firstOrNull;
     Widget fact(String value, String label) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.symmetric(vertical: Space.sm),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(value, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(width: 8),
+              Text(value, style: theme.textTheme.titleLarge?.copyWith(fontWeight: AppType.heavy)),
+              const SizedBox(width: Space.sm),
               Flexible(
-                child: Text(label,
-                    style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                child:
+                    Text(label, style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
               ),
             ],
           ),
@@ -118,11 +118,11 @@ class _Overview extends StatelessWidget {
         const SectionHeader('Best', top: 16),
         Card(
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(Space.xl),
             child: Row(
               children: [
                 ScoreRing(value: best, caption: best == null ? 'no full run yet' : 'best', size: wide ? 170 : 132),
-                const SizedBox(width: 24),
+                const SizedBox(width: Space.xl),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -140,7 +140,7 @@ class _Overview extends StatelessWidget {
         const SectionHeader('Recent runs'),
         Card(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+            padding: const EdgeInsets.fromLTRB(Space.lg, Space.xl, Space.lg, Space.md),
             child: _Trend(entries: entries.take(12).toList().reversed.toList()),
           ),
         ),
@@ -150,6 +150,8 @@ class _Overview extends StatelessWidget {
 }
 
 /// One bar per run, oldest on the left; an incomplete run is an outline.
+/// The runs share the whole width (one slot each, the bar centred in it), and
+/// "Older" and "Latest" sit under the first and last bars.
 class _Trend extends StatelessWidget {
   const _Trend({required this.entries});
   final List<HistoryEntry> entries;
@@ -158,55 +160,71 @@ class _Trend extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    const h = 120.0;
+    const h = 120.0, maxBar = 32.0;
+    final caption = theme.textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant);
+    final n = entries.length;
+    Widget slots(Widget Function(int i, double barWidth) cell) => LayoutBuilder(
+          builder: (context, c) {
+            final slot = c.maxWidth / n;
+            final bar = (slot * 0.6).clamp(8.0, maxBar);
+            return Row(children: [for (var i = 0; i < n; i++) SizedBox(width: slot, child: cell(i, bar))]);
+          },
+        );
     return Semantics(
-      label: 'Recent scores: ${entries.map((e) => e.headline == null ? 'none' : '${(e.headline! * 100).round()}%').join(', ')}',
+      label:
+          'Recent scores: ${entries.map((e) => e.headline == null ? 'none' : '${(e.headline! * 100).round()}%').join(', ')}',
       excludeSemantics: true,
       child: Column(
         children: [
           SizedBox(
             height: h,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                for (final e in entries)
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 3),
-                      child: Container(
-                        height: 6 + (h - 6) * (e.headline ?? 0),
-                        decoration: BoxDecoration(
-                          color: e.complete && e.headline != null ? accuracyColor(context, e.headline!) : null,
-                          border: e.complete ? null : Border.all(color: scheme.outline, width: 2),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                      ),
-                    ),
+            child: slots((i, bar) {
+              final e = entries[i];
+              return Align(
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  width: bar,
+                  height: 6 + (h - 6) * (e.headline ?? 0),
+                  decoration: BoxDecoration(
+                    color: e.complete && e.headline != null ? scheme.primary : null,
+                    border: e.complete ? null : Border.all(color: scheme.outline, width: 2),
+                    borderRadius: Radii.smAll,
                   ),
-                // Keep bars narrow with only a few runs.
-                for (var i = entries.length; i < 8; i++) const Expanded(child: SizedBox()),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: Space.sm),
+          // Under the first and last bars; one run is the latest.
+          SizedBox(
+              // One line of the caption, at the user's text size.
+              height: MediaQuery.textScalerOf(context).scale(caption?.fontSize ?? 12) * 1.5,
+              child: slots((i, _) => OverflowBox(
+                    maxWidth: double.infinity,
+                    child: Text(
+                      i == n - 1 ? 'Latest' : (i == 0 ? 'Older' : ''),
+                      style: caption,
+                      maxLines: 1,
+                    ),
+                  ))),
+          if (entries.any((e) => !e.complete)) ...[
+            const SizedBox(height: Space.sm),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: scheme.outline, width: 2),
+                    borderRadius: const BorderRadius.all(Radius.circular(3)),
+                  ),
+                ),
+                const SizedBox(width: Space.xs),
+                Text('Incomplete', style: caption),
               ],
             ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text('Older', style: theme.textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant)),
-              const Spacer(),
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  border: Border.all(color: scheme.outline, width: 2),
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text('Incomplete', style: theme.textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant)),
-              const Spacer(),
-              Text('Latest', style: theme.textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant)),
-            ],
-          ),
+          ],
         ],
       ),
     );
@@ -237,7 +255,7 @@ class _SessionList extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Space.sm),
         Text('Practice is scored right first time; Performance on every step.',
             style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
       ],
@@ -248,34 +266,35 @@ class _SessionList extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final h = e.headline;
-    final bpm = e.bpmMin.round() == e.bpmMax.round() ? '${e.bpmMax.round()} bpm' : '${e.bpmMax.round()} → ${e.bpmMin.round()} bpm';
+    final bpm = e.bpmMin.round() == e.bpmMax.round()
+        ? '${e.bpmMax.round()} bpm'
+        : '${e.bpmMax.round()} → ${e.bpmMin.round()} bpm';
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      contentPadding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.sm),
       leading: CircleAvatar(
         radius: 22,
         backgroundColor: scheme.secondaryContainer,
         foregroundColor: scheme.onSecondaryContainer,
         child: Icon(e.kind.icon),
       ),
-      title: Text(friendlyDate(e.date), style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+      title: Text(friendlyDate(e.date), style: theme.textTheme.titleMedium),
       subtitle: Padding(
-        padding: const EdgeInsets.only(top: 4),
+        padding: const EdgeInsets.only(top: Space.xs),
         child: Wrap(
-          spacing: 8,
-          runSpacing: 4,
+          spacing: Space.sm,
+          runSpacing: Space.xs,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text('${e.kind.title} · $bpm · ${e.judged}/${e.steps} steps'),
             if (!e.complete) const StatusPill(icon: Icons.timelapse_rounded, text: 'Incomplete'),
-            if (isBest) StatusPill(icon: Icons.emoji_events_rounded, text: 'Best', color: okColor(context)),
+            if (isBest) StatusPill(icon: Icons.emoji_events_rounded, text: 'Best', color: scheme.primary),
           ],
         ),
       ),
       trailing: Text(
         h == null ? '–' : '${(h * 100).round()}%',
         style: theme.textTheme.headlineSmall?.copyWith(
-          fontWeight: FontWeight.w800,
-          color: h == null || !e.complete ? scheme.onSurfaceVariant : accuracyColor(context, h),
+          color: h == null || !e.complete ? scheme.onSurfaceVariant : scheme.onSurface,
         ),
       ),
     );

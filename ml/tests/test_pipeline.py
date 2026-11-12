@@ -326,3 +326,22 @@ def test_window_with_empty_gyro_cells_skipped(tmp_path):
     assert W.cut(df, int(t), "L") is not None
     df.loc[i - 3 : i + 1, ["gx", "gy", "gz"]] = np.nan
     assert W.cut(df, int(t), "L") is None
+
+
+# ------------------------------------------------- session that never started -----
+def test_session_that_never_started_is_skipped(tmp_path, capsys):
+    """An app session ended before the music started: t0_app_ms null, no segments."""
+    from dt.session import segments
+    meta = {"session_id": "x", "mode": "capture", "preset_id": 3, "bpm": 96.0,
+            "t0_app_ms": None, "segments": []}
+    assert segments(meta) == []
+    assert segments({**meta, "segments": [{"from_beat": 1, "t0_app_ms": None, "bpm": 96}]}) == []
+    d = tmp_path / "s"
+    d.mkdir()
+    (d / "session.json").write_text(json.dumps(meta))
+    header = ("t_strike_node_us,foot,step_class,confidence,expected_class,timing_err_ms,verdict,"
+              "label_class,label_source,t_app_ms\n")
+    (d / "events.csv").write_text(header)
+    label.label_session(d)
+    assert "skipped" in capsys.readouterr().out
+    assert (d / "events.csv").read_text() == header

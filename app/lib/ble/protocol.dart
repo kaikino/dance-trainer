@@ -1,11 +1,11 @@
 // Wire format for the Dance Trainer BLE service. Mirrors docs/ble-protocol.md
-// and firmware/components/common/include/dt_protocol.h. Change all three together.
+// and firmware/dance_node/src/dt_protocol.h. Change all three together
+// (test/firmware_protocol_test.dart checks the app against the node's code).
 import 'dart:typed_data';
 
 const int protocolVersion = 1;
 
-String dtUuid(int short) =>
-    '7d4e${short.toRadixString(16).padLeft(4, '0')}-5a1c-4b8e-9f3a-2c6d8e1f0a00';
+String dtUuid(int short) => '7d4e${short.toRadixString(16).padLeft(4, '0')}-5a1c-4b8e-9f3a-2c6d8e1f0a00';
 
 final String uuidService = dtUuid(0x0001);
 final String uuidStatus = dtUuid(0x0002);
@@ -101,8 +101,8 @@ class StepEvent {
   final int seq, tStrikeNodeUs, confidence, timingErrMs;
   final StepClass stepClass, expectedClass;
   final Verdict verdict;
-  StepEvent(this.seq, this.tStrikeNodeUs, this.stepClass, this.confidence,
-      this.expectedClass, this.timingErrMs, this.verdict);
+  StepEvent(this.seq, this.tStrikeNodeUs, this.stepClass, this.confidence, this.expectedClass, this.timingErrMs,
+      this.verdict);
 
   static StepEvent parse(List<int> b) {
     final d = ByteData.sublistView(Uint8List.fromList(b));
@@ -194,10 +194,10 @@ Uint8List encodeStart(Mode mode, int t0NodeUs) => (ByteData(6)
     .buffer
     .asUint8List();
 
-Uint8List encodeCmd(Cmd cmd, [List<int> args = const []]) =>
-    Uint8List.fromList([cmd.index, ...args]);
+Uint8List encodeCmd(Cmd cmd, [List<int> args = const []]) => Uint8List.fromList([cmd.index, ...args]);
 
-Uint8List encodeSetWindow(int ms) =>
-    (ByteData(3)..setUint8(0, Cmd.setWindow.index)..setUint16(1, ms, Endian.little))
-        .buffer
-        .asUint8List();
+Uint8List encodeSetWindow(int ms) => (ByteData(3)
+      ..setUint8(0, Cmd.setWindow.index)
+      ..setUint16(1, ms, Endian.little))
+    .buffer
+    .asUint8List();

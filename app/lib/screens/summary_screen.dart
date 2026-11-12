@@ -60,10 +60,10 @@ String summaryHeadline(double? score, {double? previous, bool complete = true}) 
 String timingAdvice(double? meanMs) => switch (meanMs?.roundToDouble()) {
       null => 'No timed steps',
       final e when e.abs() <= 40 => 'Right on the beat',
-      final e when e > 120 => 'Behind the beat — step earlier',
-      final e when e > 0 => 'Slightly behind the beat — try stepping a touch earlier',
-      final e when e < -120 => 'Ahead of the beat — wait for it',
-      _ => 'Slightly ahead of the beat — try waiting a touch longer',
+      final e when e > 120 => 'Behind the beat: step earlier',
+      final e when e > 0 => 'Slightly behind the beat: try stepping a touch earlier',
+      final e when e < -120 => 'Ahead of the beat: wait for it',
+      _ => 'Slightly ahead of the beat: try waiting a touch longer',
     };
 
 class _SummaryScreenState extends State<SummaryScreen> {
@@ -138,9 +138,9 @@ class _SummaryScreenState extends State<SummaryScreen> {
         final header = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(preset.name, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            Wrap(spacing: 8, runSpacing: 8, children: [
+            Text(preset.name, style: theme.textTheme.headlineMedium),
+            const SizedBox(height: Space.sm),
+            Wrap(spacing: Space.sm, runSpacing: Space.sm, children: [
               StatusPill(
                   icon: Icons.speed_rounded,
                   text: tempoLabel([for (final g in recorder.segments) g.bpm], fallback: preset.bpm)),
@@ -162,20 +162,20 @@ class _SummaryScreenState extends State<SummaryScreen> {
                 children: [
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: left)),
                   if (right.isNotEmpty) ...[
-                    const SizedBox(width: 32),
+                    const SizedBox(width: Space.xxl),
                     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: right)),
                   ],
                 ],
               )
             : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [...left, ...right]);
         return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          padding: EdgeInsets.fromLTRB(Space.gutter(context), Space.lg, Space.gutter(context), Space.xl),
           children: [
             ContentWidth(
               maxWidth: wide ? 1100 : 720,
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [header, const SizedBox(height: 8), content]),
+                  children: [header, const SizedBox(height: Space.sm), content]),
             ),
           ],
         );
@@ -201,9 +201,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
     );
     final facts = [
       _Fact(Icons.done_all_rounded, '${score.judged}/${preset.steps.length}', 'steps judged'),
-      _Fact(
-          Icons.timer_outlined,
-          meanErr == null ? '–' : '${meanErr.round() > 0 ? '+' : ''}${meanErr.round()} ms',
+      _Fact(Icons.timer_rounded, meanErr == null ? '–' : '${meanErr.round() > 0 ? '+' : ''}${meanErr.round()} ms',
           timingAdvice(meanErr)),
       if (practice) ...[
         _Fact(Icons.verified_rounded, acc == null ? '–' : '${(acc * 100).round()}%', 'after retries'),
@@ -213,14 +211,13 @@ class _SummaryScreenState extends State<SummaryScreen> {
     return [
       const SectionHeader('Score'),
       Padding(
-        padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+        padding: const EdgeInsets.fromLTRB(Space.xs, 0, Space.xs, Space.md),
         child: Wrap(
-          spacing: 12,
-          runSpacing: 8,
+          spacing: Space.md,
+          runSpacing: Space.sm,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Text(summaryHeadline(headline, previous: prev, complete: complete),
-                style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+            Text(summaryHeadline(headline, previous: prev, complete: complete), style: theme.textTheme.headlineSmall),
             if (delta != null)
               StatusPill(
                 icon: delta > 0
@@ -229,7 +226,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
                         ? Icons.trending_down_rounded
                         : Icons.trending_flat_rounded,
                 text: '${delta > 0 ? '+' : ''}$delta% vs last time',
-                color: delta > 0 ? okColor(context) : null,
+                color: delta > 0 ? theme.colorScheme.primary : null,
               ),
             if (!complete)
               Text('Dance to the end for it to count towards your best.',
@@ -239,16 +236,16 @@ class _SummaryScreenState extends State<SummaryScreen> {
       ),
       Card(
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(Space.xl),
           child: Row(
             children: [
               ring,
-              const SizedBox(width: 24),
+              const SizedBox(width: Space.xl),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (final f in facts) Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: f)
+                    for (final f in facts) Padding(padding: const EdgeInsets.symmetric(vertical: Space.sm), child: f)
                   ],
                 ),
               ),
@@ -258,18 +255,17 @@ class _SummaryScreenState extends State<SummaryScreen> {
       ),
       if (hardest != null)
         Padding(
-          padding: const EdgeInsets.only(top: 12),
+          padding: const EdgeInsets.only(top: Space.md),
           child: Card(
             color: theme.colorScheme.tertiaryContainer,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: Space.xl, vertical: Space.md),
               child: Row(
                 children: [
                   Icon(Icons.local_fire_department_rounded, color: theme.colorScheme.onTertiaryContainer, size: 28),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: Space.md),
                   Text('Hardest bar: ${hardest.bar}',
-                      style: theme.textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w700, color: theme.colorScheme.onTertiaryContainer)),
+                      style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.onTertiaryContainer)),
                   const Spacer(),
                   Text('${hardest.tries} tries',
                       style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onTertiaryContainer)),
@@ -278,7 +274,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
             ),
           ),
         ),
-      const SizedBox(height: 12),
+      const SizedBox(height: Space.md),
       Row(
         children: [
           for (final v in scoredVerdicts.skip(1)) Expanded(child: _VerdictTile(verdict: v, count: score.count(v))),
@@ -286,8 +282,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
       ),
       if (score.extras > 0)
         Padding(
-          padding: const EdgeInsets.only(top: 8, left: 4),
-          child: Text('${score.extras} extra ${score.extras == 1 ? 'step' : 'steps'} off the schedule',
+          padding: const EdgeInsets.only(top: Space.sm, left: Space.xs),
+          child: Text('${Verdict.extra.counted(score.extras)} off the schedule',
               style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         ),
     ];
@@ -301,9 +297,9 @@ class _SummaryScreenState extends State<SummaryScreen> {
         const SectionHeader('To work on'),
         Card(
           child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            contentPadding: const EdgeInsets.symmetric(horizontal: Space.xl, vertical: Space.sm),
             leading: Icon(score.judged == 0 ? Icons.info_outline_rounded : Icons.celebration_rounded,
-                color: score.judged == 0 ? null : okColor(context), size: 32),
+                color: score.judged == 0 ? null : theme.colorScheme.primary, size: 32),
             title: Text(score.judged == 0 ? 'No steps were judged.' : 'No mistakes. Clean run!',
                 style: theme.textTheme.titleMedium),
           ),
@@ -321,12 +317,12 @@ class _SummaryScreenState extends State<SummaryScreen> {
           onPressed: () => _dance(context, SessionKind.practice, fromBeat: drillFrom),
           style: FilledButton.styleFrom(
             alignment: Alignment.centerLeft,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.symmetric(horizontal: Space.xl),
           ),
           child: Row(
             children: [
               const Icon(Icons.fitness_center_rounded, size: 28),
-              const SizedBox(width: 16),
+              const SizedBox(width: Space.lg),
               Expanded(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -344,7 +340,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
           ),
         ),
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: Space.md),
       Card(
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -367,7 +363,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
         const SectionHeader('Recording'),
         Card(
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(Space.xl),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -375,7 +371,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
                 for (final r in Role.values)
                   _Fact(Icons.sensors_rounded, '${recorder.sampleCounts[r] ?? 0}',
                       '${footName(r).toLowerCase()} samples'),
-                const SizedBox(height: 12),
+                const SizedBox(height: Space.md),
                 Text('Labels were assigned from the schedule; export the files and run ml/label.py to check them.',
                     style: theme.textTheme.bodyLarge),
               ],
@@ -405,18 +401,19 @@ class _Fact extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final valueText = Text(value, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800));
-    final labelText = Text(label, style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant));
+    final valueText = Text(value, style: theme.textTheme.titleLarge?.copyWith(fontWeight: AppType.heavy));
+    final labelText =
+        Text(label, style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant));
     return LayoutBuilder(
       builder: (context, c) => Row(
         children: [
           Icon(icon, color: theme.colorScheme.onSurfaceVariant),
-          const SizedBox(width: 12),
+          const SizedBox(width: Space.md),
           if (c.maxWidth < 280)
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [valueText, labelText]))
           else ...[
             valueText,
-            const SizedBox(width: 8),
+            const SizedBox(width: Space.sm),
             Flexible(child: labelText),
           ],
         ],
@@ -436,29 +433,29 @@ class _VerdictTile extends StatelessWidget {
     final theme = Theme.of(context);
     final ink = verdict.ink(context);
     final color = count == 0 ? theme.colorScheme.onSurfaceVariant : ink;
-    Widget content(String n, Verdict v) => Row(
+    Widget content(String n, String label) => Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(n, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800, color: color)),
-            const SizedBox(width: 10),
-            Icon(v.icon, color: color, size: 20),
-            const SizedBox(width: 4),
-            Text(v.label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 16)),
+            Text(n, style: theme.textTheme.headlineMedium?.copyWith(color: color)),
+            const SizedBox(width: Space.sm),
+            Icon(verdict.icon, color: color, size: 20),
+            const SizedBox(width: Space.xs),
+            Text(label, style: theme.textTheme.cardTitle.copyWith(color: color)),
           ],
         );
     return Semantics(
-      label: '$count ${verdict.label}',
+      label: verdict.counted(count),
       excludeSemantics: true,
       child: Card(
         color: count == 0 ? null : Color.alphaBlend(ink.withValues(alpha: 0.12), theme.colorScheme.surfaceContainer),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+          padding: const EdgeInsets.symmetric(vertical: Space.md, horizontal: Space.md),
           child: FittedBox(
             fit: BoxFit.scaleDown,
             child: SizedLike(
               alignment: AlignmentDirectional.centerStart,
-              sizer: content('0', widestVerdict),
-              child: content('$count', verdict),
+              sizer: content('00', widestVerdictLabel),
+              child: content('$count', verdict.labelFor(count)),
             ),
           ),
         ),
@@ -478,35 +475,34 @@ class _MistakeRow extends StatelessWidget {
     final theme = Theme.of(context);
     final icon = stepIcon(group.step, group.foot);
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      contentPadding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.xs),
       leading: CircleAvatar(
         radius: 22,
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: theme.colorScheme.onPrimary,
         child: icon == null ? null : Icon(icon),
       ),
-      title: Text('${footName(group.foot)} foot, ${stepLabel(group.step)}',
-          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+      title: Text('${footName(group.foot)} foot, ${stepLabel(group.step)}', style: theme.textTheme.titleMedium),
       subtitle: Padding(
-        padding: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.only(top: Space.sm),
         child: Wrap(
-          spacing: 6,
-          runSpacing: 4,
+          spacing: Space.sm,
+          runSpacing: Space.xs,
           children: [
             for (final v in scoredVerdicts)
-              if (group.byVerdict[v] case final n?) StatusPill(icon: v.icon, text: '$n ${v.label}', color: v.ink(context)),
+              if (group.byVerdict[v] case final n?) StatusPill(icon: v.icon, text: v.counted(n), color: v.ink(context)),
             // What was danced instead, so the fix is clear.
             for (final MapEntry(key: did, value: n) in group.didInstead.entries)
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.only(top: 2),
+                padding: const EdgeInsets.only(top: Space.xs),
                 child: Text('Did ${stepLabel(did)} instead of ${stepLabel(group.step)} ×$n',
                     style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
               ),
           ],
         ),
       ),
-      trailing: Text('${group.count}', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      trailing: Text('${group.count}', style: theme.textTheme.headlineSmall),
     );
   }
 }

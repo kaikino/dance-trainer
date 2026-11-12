@@ -6,6 +6,7 @@ import '../audio/beat_clock.dart';
 import '../ble/protocol.dart';
 import '../models/preset.dart';
 import '../store/settings.dart';
+import '../ui/tokens.dart';
 
 /// Measures how long this device takes to turn "play" into sound: a slow click
 /// track plays and the dancer taps along. The median gap between a tap and the
@@ -121,7 +122,7 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
             const Text('Every device takes a moment to play sound. Press Start, listen, '
                 'and tap the big button exactly on each click. Use the speaker or '
                 'headphones you will dance with.'),
-            const SizedBox(height: 16),
+            const SizedBox(height: Space.lg),
             if (_running)
               SizedBox(
                 width: double.infinity,
@@ -132,24 +133,23 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
                   child: FilledButton(
                     onPressed: () {},
                     child: Text('Tap on the click  (${_offsets.length}/$_want)',
-                        style: const TextStyle(fontSize: 20)),
+                        style: Theme.of(context).textTheme.titleLarge),
                   ),
                 ),
               )
             else
               FilledButton.icon(
                 onPressed: _start,
-                icon: const Icon(Icons.play_arrow),
+                icon: const Icon(Icons.play_arrow_rounded),
                 label: Text(_result == null ? 'Start' : 'Try again'),
               ),
             if (!_running && _result == null && _offsets.isNotEmpty)
               const Padding(
-                padding: EdgeInsets.only(top: 8),
+                padding: EdgeInsets.only(top: Space.sm),
                 child: Text('Not enough taps. Try again.'),
               ),
-            const SizedBox(height: 16),
-            Text('Sound delay: $_manual ms${_result != null ? ' (measured)' : ''}',
-                style: theme.textTheme.titleSmall),
+            const SizedBox(height: Space.lg),
+            Text('Sound delay: $_manual ms${_result != null ? ' (measured)' : ''}', style: theme.textTheme.titleSmall),
             MergeSemantics(
               child: Semantics(
                 label: 'Sound delay',
@@ -164,7 +164,8 @@ class _SoundSyncDialogState extends State<SoundSyncDialog> {
                 ),
               ),
             ),
-            Text('If steps still reach the line before you hear the beat, raise it; '
+            Text(
+                'If steps still reach the line before you hear the beat, raise it; '
                 'if after, lower it.',
                 style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
           ],

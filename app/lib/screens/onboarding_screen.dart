@@ -90,7 +90,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           title: const Text('How to wear'),
           actions: [
             if (!last) TextButton(onPressed: _done, child: const Text('Skip')),
-            const SizedBox(width: 8),
+            const SizedBox(width: Space.sm),
           ],
         ),
         body: PageView(
@@ -103,12 +103,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: ContentWidth(
             maxWidth: 900,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              padding: const EdgeInsets.fromLTRB(Space.lg, Space.md, Space.lg, Space.md),
               child: Row(
                 children: [
                   SizedBox(
                     width: 110,
-                    height: 52,
+                    height: Sizes.button,
                     child: _page == 0
                         ? null
                         : TextButton.icon(
@@ -120,7 +120,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   Expanded(child: _Dots(count: _pages, index: _page)),
                   SizedBox(
                     width: 140,
-                    height: 52,
+                    height: Sizes.button,
                     child: FilledButton(
                       onPressed: last ? _done : () => _go(_page + 1),
                       child: Text(last ? 'Got it' : 'Next'),
@@ -163,14 +163,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 Text('Switch both nodes on, then scan for them.',
                     style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                const SizedBox(height: 12),
+                const SizedBox(height: Space.md),
                 SizedBox(
-                  height: 52,
+                  height: Sizes.button,
                   child: FilledButton.tonalIcon(
                     onPressed: _scanning ? null : _scan,
                     icon: _scanning
                         ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.bluetooth_searching),
+                        : const Icon(Icons.bluetooth_searching_rounded),
                     label: Text(_scanning ? 'Scanning…' : 'Scan for nodes'),
                   ),
                 ),
@@ -179,10 +179,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           : Row(
               children: [
                 for (final r in Role.values) ...[
-                  if (r == Role.right) const SizedBox(width: 12),
+                  if (r == Role.right) const SizedBox(width: Space.md),
                   Expanded(
                     child: SizedBox(
-                      height: 52,
+                      height: Sizes.button,
                       child: FilledButton.tonalIcon(
                         onPressed: m.nodes.firstWhere((n) => n.role == r).connected
                             ? () => _buzz(m.nodes.firstWhere((n) => n.role == r))
@@ -206,20 +206,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       title: 'Calibrate each foot',
       picture: const FeetDiagram(showStance: true, height: double.infinity),
       points: const [
-        (Icons.explore_rounded, 'Calibration tells each node which way your toes point, so a forward step is judged as forward.'),
+        (
+          Icons.explore_rounded,
+          'Calibration tells each node which way your toes point, so a forward step is judged as forward.'
+        ),
         (Icons.north_rounded, 'You slide each foot forward three times. It takes about a minute.'),
       ],
       footer: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: scheme.tertiaryContainer, borderRadius: BorderRadius.circular(16)),
+        padding: const EdgeInsets.all(Space.lg),
+        decoration: BoxDecoration(color: scheme.tertiaryContainer, borderRadius: Radii.mdAll),
         child: Row(
           children: [
             Icon(Icons.accessibility_new_rounded, color: scheme.onTertiaryContainer, size: 32),
-            const SizedBox(width: 14),
+            const SizedBox(width: Space.md),
             Expanded(
               child: Text(stanceInstruction,
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(color: scheme.onTertiaryContainer, fontWeight: FontWeight.w600, height: 1.35)),
+                  style: theme.textTheme.titleMedium?.copyWith(color: scheme.onTertiaryContainer, height: 1.35)),
             ),
           ],
         ),
@@ -246,15 +248,13 @@ class _Card extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('STEP $step OF 3',
-            style: theme.textTheme.labelLarge
-                ?.copyWith(color: scheme.primary, fontWeight: FontWeight.w800, letterSpacing: 1.4)),
-        const SizedBox(height: 6),
-        Text(title, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 16),
+        Text('STEP $step OF 3', style: theme.textTheme.overline.copyWith(color: scheme.primary)),
+        const SizedBox(height: Space.sm),
+        Text(title, style: theme.textTheme.headlineMedium),
+        const SizedBox(height: Space.lg),
         for (final (icon, line) in points)
           Padding(
-            padding: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.only(bottom: Space.md),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -264,28 +264,28 @@ class _Card extends StatelessWidget {
                   decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
                   child: Icon(icon, size: 20, color: scheme.onSecondaryContainer),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: Space.md),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.only(top: 6),
+                    padding: const EdgeInsets.only(top: Space.sm),
                     child: Text(line, style: theme.textTheme.titleMedium?.copyWith(height: 1.35)),
                   ),
                 ),
               ],
             ),
           ),
-        if (footer != null) ...[const SizedBox(height: 6), footer!],
+        if (footer != null) ...[const SizedBox(height: Space.sm), footer!],
       ],
     );
     Widget art(double height) => Container(
           height: height,
-          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
-          decoration: BoxDecoration(color: scheme.surfaceContainerLow, borderRadius: BorderRadius.circular(24)),
+          padding: const EdgeInsets.symmetric(vertical: Space.xl, horizontal: Space.md),
+          decoration: BoxDecoration(color: scheme.surfaceContainerLow, borderRadius: Radii.lgAll),
           child: picture,
         );
     return LayoutBuilder(builder: (context, c) {
       final wide = c.maxWidth > 760 && c.maxWidth > c.maxHeight;
-      const pad = EdgeInsets.fromLTRB(24, 16, 24, 24);
+      const pad = EdgeInsets.fromLTRB(Space.xl, Space.lg, Space.xl, Space.xl);
       return SingleChildScrollView(
         padding: pad,
         child: ConstrainedBox(
@@ -305,7 +305,7 @@ class _Card extends StatelessWidget {
                     )
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [art(300), const SizedBox(height: 24), text],
+                      children: [art(300), const SizedBox(height: Space.xl), text],
                     ),
             ),
           ),
@@ -330,7 +330,7 @@ class _Dots extends StatelessWidget {
           for (var i = 0; i < count; i++)
             AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.symmetric(horizontal: 4),
+              margin: const EdgeInsets.symmetric(horizontal: Space.xs),
               width: i == index ? 24 : 8,
               height: 8,
               decoration: BoxDecoration(

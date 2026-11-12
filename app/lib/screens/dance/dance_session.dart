@@ -27,7 +27,8 @@ enum SessionPhase { preparing, running, error }
 /// touched and nothing is recorded: the chart scrolls with the music and
 /// calls out each step.
 ///
-/// Every await is followed by an [ending] check: End may be pressed at any point.
+/// Every await is followed by a check that the session has not ended or been
+/// paused meanwhile: End, a pause or a call may come at any point.
 class DanceSession extends ChangeNotifier {
   DanceSession({
     required this.manager,
@@ -77,6 +78,9 @@ class DanceSession extends ChangeNotifier {
   String? error;
   Hold? hold;
   bool ending = false;
+
+  /// Practice "Keep going" moved past a bar: the run is not a complete one.
+  bool _skippedBar = false;
 
   /// Called once the session has ended; [recorded] says whether there is a
   /// recording to summarise (never in [demo], or when it ended before starting).
@@ -136,13 +140,14 @@ class DanceSession extends ChangeNotifier {
   }
 
   Future<void> begin() async {
+    final run = _run = Object();
     try {
       await _clock.prepare();
-      if (ending) return;
+      if (_stale(run)) return;
       final from = fromBeat;
       if (!demo) {
         await (_recorderBegin = recorder.begin());
-        if (ending) return;
+        if (_stale(run)) return;
         for (final n in manager.nodes) {
           // Every node: one that comes back mid-session keeps the same stream.
           _subs.add(n.events.listen((e) => _onEvent(n, e)));
@@ -153,31 +158,62 @@ class DanceSession extends ChangeNotifier {
           // Always: a node may have rebooted or drifted since the last session.
           await n.syncTime();
           recorder.noteNode(n);
-          if (ending) return;
+          if (_stale(run)) return;
           await n.pushSchedule(_preset.id, _preset.bpm, _preset.scheduleFor(n.role, fromBeat: from));
-          if (ending) return;
+          if (_stale(run)) return;
           _linked.add(n.role);
         }
       }
       if (from > 1) score.restart(fromBeat: from);
       _seekCues(from);
+      // Sent to the background while getting ready: wait, paused, for the
+      // dancer instead of starting unseen.
+      if (_pendingPause case final reason?) {
+        _run = null;
+        phase = SessionPhase.running;
+        hold = PausedHold(reason, from);
+        _changed();
+        return;
+      }
       final t0 = from > 1 ? await _clock.resumeFrom(from) : await _clock.start();
-      if (ending) return;
+      if (_stale(run)) return await _afterStale();
       _t0AppMs = t0;
       if (!demo) recorder.addSegment(t0, fromBeat: from, bpm: _preset.bpm);
       phase = SessionPhase.running;
       _changed();
-      if (demo) return;
+      if (_pendingPause case final reason?) return pause(reason);
+      if (demo) return _done(run);
       for (final n in live) {
         await n.start(kind.nodeMode, t0);
-        if (ending) return;
+        if (_stale(run)) return await _afterStale();
       }
+      _done(run);
     } catch (e) {
-      if (_disposed) return;
+      if (_disposed || ending) return;
+      _run = null;
       phase = SessionPhase.error;
       error = '$e';
       _changed();
     }
+  }
+
+  /// The [begin] or [resumeFrom] in flight. A pause or End makes it stale:
+  /// it stops at its next await instead of playing on under the hold.
+  Object? _run;
+
+  /// A pause asked for while getting ready, applied once [begin] gets there.
+  String? _pendingPause;
+
+  bool _stale(Object run) => ending || _disposed || _run != run;
+  void _done(Object run) {
+    if (_run == run) _run = null;
+  }
+
+  /// A start that went stale may have started the music or a node after the
+  /// pause stopped them: stop them again, unless a newer start is under way.
+  Future<void> _afterStale() async {
+    if (_disposed || ending || _run != null) return;
+    await _haltPlayback();
   }
 
   /// Advances the chart to the clock; call once a frame. Ends the session
@@ -214,8 +250,7 @@ class DanceSession extends ChangeNotifier {
     }
     if (called.isEmpty) return;
     for (final s in called) {
-      final label = stepLabel(s.stepClass);
-      chart.cue(s.foot, label[0].toUpperCase() + label.substring(1));
+      chart.cue(s.foot, stepLabel(s.stepClass));
     }
     callout = called;
     _changed();
@@ -226,8 +261,7 @@ class DanceSession extends ChangeNotifier {
   void _onEvent(NodeClient n, StepEvent e) {
     final t0 = _t0AppMs;
     if (_disposed || ending || !scoring || hold != null || t0 == null || n.offsetUs == null) return;
-    final beat = 1 + n.msAfter(e.tStrikeNodeUs, t0) / _preset.beatMs;
-    final r = score.add(n.role, e, beat);
+    final r = score.addStrike(n.role, e, strikeMs: n.msAfter(e.tStrikeNodeUs, t0), beatMs: _preset.beatMs);
     if (r.fate == EventFate.duplicate) return;
     final i = r.step;
     if (i != null) chart.hit(n.role, e.verdict, timingErrMs: e.timingErrMs);
@@ -241,6 +275,7 @@ class DanceSession extends ChangeNotifier {
       case PracticeAction.rewind:
         unawaited(_practiceRewind(n.role, e, step));
       case PracticeAction.offerChoice:
+        _run = null;
         hold = ChoiceHold(Preset.barStart(step.beat));
         _changed();
         unawaited(_haltPlayback());
@@ -267,10 +302,14 @@ class DanceSession extends ChangeNotifier {
     final barStart = Preset.barStart(step.beat);
     final name = footName(foot);
     final (title, detail) = switch (e.verdict) {
-      Verdict.wrongStep => ('Wrong step', '$name foot: ${stepLabel(e.stepClass)} instead of ${stepLabel(step.stepClass)}'),
+      Verdict.wrongStep => (
+          'Wrong step',
+          '$name foot: ${stepLabel(e.stepClass)} instead of ${stepLabel(step.stepClass)}'
+        ),
       _ => ('Missed step', '$name foot: ${stepLabel(step.stepClass)}'),
     };
     final h = MistakeHold(e.verdict, title, detail, barStart, _coach.nextTry);
+    _run = null;
     hold = h;
     _changed();
     await _haltPlayback();
@@ -283,8 +322,11 @@ class DanceSession extends ChangeNotifier {
 
   /// Back to [beat] (a bar start) with a count-in. The nodes get only the
   /// steps from there on, so the replayed count-in is not judged. On failure
-  /// the overlay offers Try again and End instead of hanging.
+  /// the overlay offers Try again and End instead of hanging. A pause while
+  /// this is under way wins: the session stays held.
   Future<void> resumeFrom(double beat) async {
+    if (ending || _disposed) return;
+    final run = _run = Object();
     score.restart(fromBeat: beat);
     chart.setVerdicts(score.shown);
     _seekCues(beat);
@@ -292,31 +334,45 @@ class DanceSession extends ChangeNotifier {
       final nodes = demo ? const <NodeClient>[] : live;
       for (final n in nodes) {
         await n.pushSchedule(_preset.id, _preset.bpm, _preset.scheduleFor(n.role, fromBeat: beat));
-        if (ending) return;
+        if (_stale(run)) return await _afterStale();
       }
       final t0 = await _clock.resumeFrom(beat);
-      if (ending) return;
+      if (_stale(run)) return await _afterStale();
       _t0AppMs = t0;
       if (!demo) recorder.addSegment(t0, fromBeat: beat, bpm: _preset.bpm);
       hold = null;
       _changed();
       for (final n in nodes) {
         await n.start(kind.nodeMode, t0);
-        if (ending) return;
+        if (_stale(run)) return await _afterStale();
       }
+      _done(run);
     } catch (e) {
-      if (ending) return;
+      if (_stale(run)) return await _afterStale();
+      _run = null;
       await _haltPlayback();
+      if (ending || _disposed) return;
       hold = FailedHold('Could not restart: $e', beat);
       _changed();
     }
   }
 
-  /// Pauses the session (app backgrounded, music interrupted).
+  /// Pauses the session (app backgrounded, music interrupted). While getting
+  /// ready, the pause waits for [begin] to get there. A start under way
+  /// (Resume, Try again, Keep going just pressed) is called off.
   void pause(String reason) {
-    if (phase != SessionPhase.running || ending || _disposed) return;
+    if (ending || _disposed) return;
+    if (phase == SessionPhase.preparing) {
+      _pendingPause ??= reason;
+      return;
+    }
+    if (phase != SessionPhase.running) return;
     final h = hold;
-    if (h is PausedHold || h is ChoiceHold || h is FailedHold) return; // already stopped, with its own buttons
+    final starting = _run != null;
+    // Already stopped, with its own buttons.
+    if (!starting && (h is PausedHold || h is ChoiceHold || h is FailedHold)) return;
+    _run = null;
+    _pendingPause = null;
     final from = h?.fromBeat ?? max(score.fromBeat, Preset.barStart(max(1.0, _clock.nowBeat)));
     hold = PausedHold(reason, from);
     _changed();
@@ -324,6 +380,8 @@ class DanceSession extends ChangeNotifier {
   }
 
   Future<void> slowDown(double fromBeat) async {
+    if (ending || _disposed) return;
+    final run = _run = Object();
     _coach.slowDown();
     final slower = _preset.withTempo(slowerFactor);
     final clock = _newClock(slower);
@@ -331,12 +389,13 @@ class DanceSession extends ChangeNotifier {
       await clock.prepare();
     } catch (e) {
       clock.dispose();
-      if (_disposed) return;
+      if (_stale(run)) return;
+      _run = null;
       hold = FailedHold('Could not change the tempo: $e', fromBeat);
       _changed();
       return;
     }
-    if (_disposed || ending) {
+    if (_stale(run)) {
       clock.dispose();
       return;
     }
@@ -352,6 +411,7 @@ class DanceSession extends ChangeNotifier {
 
   Future<void> keepGoing(double barStart) async {
     _coach.keepGoing();
+    _skippedBar = true;
     final next = barStart + 4;
     if (next > _preset.lastBeat) return end(complete: true);
     await resumeFrom(next);
@@ -436,7 +496,8 @@ class DanceSession extends ChangeNotifier {
     _changed();
     await _clock.stop();
     if (!demo) await _stopNodes(manager.connectedNodes);
-    final recorded = await _finishRecording(complete: complete && fromBeat <= 1 && phase == SessionPhase.running);
+    final recorded =
+        await _finishRecording(complete: complete && fromBeat <= 1 && phase == SessionPhase.running && !_skippedBar);
     if (_disposed) return;
     onEnded?.call(recorded);
   }
@@ -448,6 +509,11 @@ class DanceSession extends ChangeNotifier {
     try {
       await b;
     } catch (_) {
+      return false;
+    }
+    if (recorder.segments.isEmpty) {
+      // Ended before the music started: nothing was danced, nothing to keep.
+      await recorder.discard();
       return false;
     }
     await recorder.end(

@@ -91,7 +91,10 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final feet = [for (final r in Role.values) if (_feet[r] != null) _feet[r]!];
+    final feet = [
+      for (final r in Role.values)
+        if (_feet[r] != null) _feet[r]!
+    ];
     return Scaffold(
       appBar: AppBar(
         title: const Text('Live view'),
@@ -102,7 +105,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                 f.zeroHeading();
               }
             }),
-            icon: const Icon(Icons.navigation),
+            icon: const Icon(Icons.navigation_rounded),
             label: const Text('Set straight ahead'),
           ),
         ],
@@ -112,7 +115,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
           : Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  padding: EdgeInsets.fromLTRB(Space.gutter(context), Space.xs, Space.gutter(context), Space.sm),
                   child: Text(
                     'Toes forward, tap Set straight ahead. Then move your foot: the one on screen should copy you.',
                     textAlign: TextAlign.center,
@@ -120,15 +123,22 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                   ),
                 ),
                 Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, c) {
-                      final panels = [
-                        for (final f in feet) Expanded(child: _FootPanel(foot: f, spoken: _spoken[f.node.role] ?? '')),
-                      ];
-                      return c.maxWidth > c.maxHeight
-                          ? Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: panels)
-                          : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: panels);
-                    },
+                  // Cards keep a small margin between them; the outer edge
+                  // lines up with the screen gutter.
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                        Space.gutter(context) - Space.sm, 0, Space.gutter(context) - Space.sm, Space.sm),
+                    child: LayoutBuilder(
+                      builder: (context, c) {
+                        final panels = [
+                          for (final f in feet)
+                            Expanded(child: _FootPanel(foot: f, spoken: _spoken[f.node.role] ?? '')),
+                        ];
+                        return c.maxWidth > c.maxHeight
+                            ? Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: panels)
+                            : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: panels);
+                      },
+                    ),
                   ),
                 ),
               ],
@@ -329,9 +339,9 @@ class _FootPanel extends StatelessWidget {
     final (badge, color) = foot.node.connected
         ? switch (calStateOf(st)) {
             CalState.unknown => ('Calibration unknown (old firmware)', scheme.onSurfaceVariant),
-            CalState.boardMoved => ('Board moved on the strap? Calibrate again', warnColor(context)),
-            CalState.calibrated => ('Calibrated', okColor(context)),
-            CalState.tiltOnly => ('Tilt only: toe direction unknown, calibrate again', warnColor(context)),
+            CalState.boardMoved => ('Board moved on the strap? Calibrate again', StatusColors.warn(context)),
+            CalState.calibrated => ('Calibrated', StatusColors.ok(context)),
+            CalState.tiltOnly => ('Tilt only: toe direction unknown, calibrate again', StatusColors.warn(context)),
             CalState.notCalibrated => ('Not calibrated: directions follow the board, not the foot', scheme.error),
           }
         : ('Disconnected', scheme.error);
@@ -342,18 +352,18 @@ class _FootPanel extends StatelessWidget {
       label: '$name. $badge. $spoken',
       excludeSemantics: true,
       child: Card(
-        margin: const EdgeInsets.all(8),
+        margin: const EdgeInsets.all(Space.sm),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(Space.md),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
                   Text(name, style: theme.textTheme.titleMedium),
-                  const SizedBox(width: 12),
-                  Icon(Icons.circle, size: 10, color: color),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: Space.md),
+                  Icon(Icons.circle_rounded, size: 10, color: color),
+                  const SizedBox(width: Space.sm),
                   Expanded(child: Text(badge, style: TextStyle(color: color), overflow: TextOverflow.ellipsis)),
                 ],
               ),
@@ -386,9 +396,9 @@ typedef _V3 = (double, double, double);
 /// The foot as a flat sole (+x toe, +y the dancer's left, +z up; length 1),
 /// rotated by the foot's pose and lifted above the floor so it can tilt, with
 /// its shadow flat on the floor. The sole is a real foot's shape (arch on the
-/// inner side, mirrored per foot) with a coloured toe cap. Orthographic camera
-/// behind the dancer, high (55°) so a turned-out toe is not exaggerated, and a
-/// little to the outside of this foot.
+/// inner side, mirrored per foot) with a darker toe cap. The camera is straight
+/// behind the dancer and high (55°), with a mild perspective: the grid is a
+/// symmetric floor, so a toe turned in reads as turned in on either foot.
 class _FootPainter extends CustomPainter {
   _FootPainter(this.foot, this.theme);
   final _FootState foot;
@@ -403,24 +413,27 @@ class _FootPainter extends CustomPainter {
   /// Sole outlines per foot; the inner side has the arch.
   static final _left = soleOutline(left: true), _right = soleOutline(left: false);
 
-  /// The toe cap starts this far toward the toe.
-  static const capFrom = 0.3;
+  /// Toe caps per foot.
+  static final _leftCap = toeCapOutline(_left), _rightCap = toeCapOutline(_right);
+
+  /// Perspective: the camera is this many foot lengths from the foot.
+  static const _eye = 4.0;
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.clipRect(Offset.zero & size);
     final m = foot.pose;
     final outline = foot.left ? _left : _right;
-    final outside = foot.left ? 1.0 : -1.0; // +y is outside on the left foot
-    // d = viewing direction; r = screen right; u = screen up.
+    final capOutline = foot.left ? _leftCap : _rightCap;
+    // d = viewing direction; r = screen right (the dancer's right); u = screen up.
     const el = 55 * pi / 180;
-    final az = -outside * 15 * pi / 180;
-    final d = (cos(el) * cos(az), cos(el) * sin(az), -sin(el));
-    final r = (sin(az), -cos(az), 0.0);
+    final d = (cos(el), 0.0, -sin(el));
+    const r = (0.0, -1.0, 0.0);
     final u = _cross(r, d);
     final scale = min(size.width * 0.55, size.height * 0.8);
     final c = Offset(size.width / 2, size.height * 0.55);
-    Offset proj(_V3 p) => c + Offset(_dot(p, r), -_dot(p, u)) * scale;
+    // Nearer the camera is drawn a little larger.
+    Offset proj(_V3 p) => c + Offset(_dot(p, r), -_dot(p, u)) * (scale * _eye / (_eye + _dot(p, d)));
 
     // Offset from the centre: the spring push, (forward, left).
     final pd = sqrt(foot.pushFwd * foot.pushFwd + foot.pushLeft * foot.pushLeft);
@@ -445,10 +458,19 @@ class _FootPainter extends CustomPainter {
     // Floor: a grid fixed in the world (a square every 0.15 foot lengths), so
     // the foot's turn and its displacement both read against straight lines,
     // and a bolder straight-ahead line with an arrow.
-    final grid = Paint()
-      ..color = cs.outlineVariant.withValues(alpha: 0.6)
-      ..strokeWidth = 1;
     const cell = 0.15, gx0 = -0.6, gx1 = 0.75, gy = 0.6;
+    // Faded toward the edges, so the floor has no hard border.
+    final grid = Paint()
+      ..strokeWidth = 1
+      ..shader = RadialGradient(colors: [
+        cs.outlineVariant.withValues(alpha: 0.8),
+        cs.outlineVariant.withValues(alpha: 0.5),
+        cs.outlineVariant.withValues(alpha: 0),
+      ], stops: const [
+        0,
+        0.6,
+        1
+      ]).createShader(Rect.fromCircle(center: proj((0.05, 0, 0)), radius: scale * 0.75));
     for (var x = gx0; x <= gx1 + 1e-9; x += cell) {
       canvas.drawLine(proj((x, -gy, 0)), proj((x, gy, 0)), grid);
     }
@@ -462,8 +484,8 @@ class _FootPainter extends CustomPainter {
 
     // Shadow: the sole's outline dropped straight down to the floor.
     final shadow = [for (final p in outline) world(p, 0)];
-    canvas.drawPath(Path()..addPolygon([for (final p in shadow) proj((p.$1, p.$2, 0))], true),
-        Paint()..color = cs.onSurface.withValues(alpha: 0.12));
+    canvas.drawPath(
+        Path()..addPolygon([for (final p in shadow) proj((p.$1, p.$2, 0))], true), Paint()..color = FootColors.shadow);
 
     // Sole: a convex slab, so drawing only the faces toward the camera is enough.
     final top = [for (final p in outline) world(p, thick / 2)];
@@ -498,9 +520,8 @@ class _FootPainter extends CustomPainter {
 
     // Toe cap on the top, and a chevron, so the direction reads at a glance.
     if (topUp) {
-      canvas.drawPath(
-          Path()..addPolygon([for (var i = 0; i < outline.length; i++) if (outline[i].$1 >= capFrom) proj(top[i])], true),
-          Paint()..color = cs.tertiary);
+      canvas.drawPath(Path()..addPolygon([for (final p in capOutline) proj(world(p, thick / 2))], true),
+          Paint()..color = FootColors.cap(cs.primary));
       Offset at(double x, double y) => proj(world((x, y), thick / 2));
       final a = at(0.04, 0.08), b = at(0.19, 0), e = at(0.04, -0.08);
       canvas.drawPath(

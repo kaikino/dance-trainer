@@ -129,6 +129,7 @@ class BeatClock extends ChangeNotifier {
   Future<int> start() => _playFrom(0);
 
   Future<void> pause() async {
+    _gen++;
     _heldFileMs = _heardFileMs;
     _anchorWallMs = null;
     await _player.pause();
@@ -137,24 +138,40 @@ class BeatClock extends ChangeNotifier {
 
   /// Rewinds so that playback resumes `countInBeats` before `beat`, and returns
   /// the new wall-clock t0 for beat 1 (so the nodes can be restarted on it).
+  /// A [pause] or [stop] while seeking wins: the music then stays stopped
+  /// (the returned t0 is never heard; the caller has been paused or ended).
   Future<int> resumeFrom(double beat) async {
+    final gen = _gen;
     final targetMs = max(0.0, (beat - 1) * _fileBeatMs);
-    await _player.seek(Duration(microseconds: (targetMs * 1000).round()));
-    return _playFrom(targetMs);
+    try {
+      await _player.seek(Duration(microseconds: (targetMs * 1000).round()));
+    } catch (e) {
+      // A stop aborts a seek under way (PlatformException abort).
+      if (gen == _gen && !_disposed) rethrow;
+    }
+    return _playFrom(targetMs, gen);
   }
 
-  Future<int> _playFrom(double fileMs) async {
-    _anchorFileMs = fileMs;
-    _anchorWallMs = _wallMs();
-    unawaited(_player.play());
+  /// Bumped by [pause] and [stop]: a resume that was seeking meanwhile must
+  /// not start the music after it.
+  int _gen = 0;
+
+  Future<int> _playFrom(double fileMs, [int? gen]) async {
+    final wall = _wallMs();
     // Beat 1 is heard when the track reaches the end of the count-in.
-    t0AppMs = (_anchorWallMs! + AppSettings.audioDelayMs + (_countInFileMs - fileMs) / _rate).round();
-    debugPrint('beat clock: play from ${fileMs.round()} ms, delay ${AppSettings.audioDelayMs} ms, t0 $t0AppMs');
+    final t0 = (wall + AppSettings.audioDelayMs + (_countInFileMs - fileMs) / _rate).round();
+    if (_disposed || (gen != null && gen != _gen)) return t0;
+    _anchorFileMs = fileMs;
+    _anchorWallMs = wall;
+    unawaited(_player.play().catchError((Object e) => debugPrint('beat clock: play failed: $e')));
+    t0AppMs = t0;
+    debugPrint('beat clock: play from ${fileMs.round()} ms, delay ${AppSettings.audioDelayMs} ms, t0 $t0');
     notifyListeners();
-    return t0AppMs!;
+    return t0;
   }
 
   Future<void> stop() async {
+    _gen++;
     _heldFileMs = _heardFileMs;
     _anchorWallMs = null;
     await _player.stop();

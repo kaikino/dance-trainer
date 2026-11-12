@@ -164,22 +164,42 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
                 return countIn > 0 ? _CountIn(countIn) : const SizedBox.shrink();
               },
             ),
-            if (hold is PausedHold || hold is FailedHold) _CentreCard(child: _holdCard(theme)),
+            AnimatedSwitcher(
+              duration: Motion.fade,
+              child: hold is PausedHold || hold is FailedHold
+                  ? _CentreCard(key: ValueKey(hold), child: _holdCard(theme))
+                  : const SizedBox.shrink(),
+            ),
             LayoutBuilder(
               builder: (context, c) => Align(
                 alignment: Alignment.topCenter,
                 child: Padding(
                   // Docked just under the lane header.
-                  padding: EdgeInsets.only(top: StepChart.headerHeight(c.biggest) + 12),
+                  padding: EdgeInsets.only(top: StepChart.headerHeight(c.biggest) + Space.md),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: max(min(c.maxWidth * 0.7, 640), min(c.maxWidth - 16, 340))),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (disconnectedText(s.missing) case final text?)
-                          _NodeBanner(text: text, busy: s.reconnecting, onReconnect: s.reconnectNodes),
-                        if (s.toast case final t?) _NodeToast(text: t.text, ok: t.ok),
-                      ],
+                    child: AnimatedSize(
+                      duration: Motion.fade,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AnimatedSwitcher(
+                            duration: Motion.fade,
+                            child: switch (disconnectedText(s.missing)) {
+                              final text? => _NodeBanner(
+                                  key: ValueKey(text), text: text, busy: s.reconnecting, onReconnect: s.reconnectNodes),
+                              null => const SizedBox.shrink(),
+                            },
+                          ),
+                          AnimatedSwitcher(
+                            duration: Motion.fade,
+                            child: switch (s.toast) {
+                              final t? => _NodeToast(key: ValueKey(t), text: t.text, ok: t.ok),
+                              null => const SizedBox.shrink(),
+                            },
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -190,12 +210,18 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
     // Practice coaching sits beside the chart (landscape) or under it
     // (portrait), never over the steps coming up.
     final coaching = hold != null && hold.coaching ? _holdCard(theme, fill: true) : null;
-    final endButton = SizedBox(
-      height: 56,
-      child: FilledButton.tonalIcon(
-        onPressed: s.ending ? null : _confirmEnd,
-        icon: Icon(s.demo ? Icons.close_rounded : Icons.stop_rounded),
-        label: Text(s.demo ? 'Stop watching' : 'End session'),
+    // Hidden (its room kept, so the chart does not jump) while the paused or
+    // failed card offers End itself.
+    final covered = hold is PausedHold || hold is FailedHold;
+    final endButton = Visibility.maintain(
+      visible: !covered,
+      child: SizedBox(
+        height: Sizes.button,
+        child: FilledButton.tonalIcon(
+          onPressed: s.ending || covered ? null : _confirmEnd,
+          icon: Icon(s.demo ? Icons.close_rounded : Icons.stop_rounded),
+          label: Text(s.demo ? 'Stop watching' : 'End session'),
+        ),
       ),
     );
     final status = ValueListenableBuilder(
@@ -204,7 +230,8 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
         text: switch (s.phase) {
           SessionPhase.preparing => 'Getting ready…',
           SessionPhase.error => 'Could not start',
-          _ when hold is PausedHold || hold is FailedHold => 'Paused',
+          // The card over the chart says Paused; here, where it picks up.
+          _ when hold is PausedHold || hold is FailedHold => 'Bar ${barOf(hold!.fromBeat)} of ${s.preset.bars}',
           _ when s.clock.nowBeat < s.score.fromBeat => 'Get ready',
           _ => 'Bar ${barOf(s.clock.nowBeat).clamp(1, s.preset.bars)} of ${s.preset.bars}',
         },
@@ -229,19 +256,33 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Expanded(
-                        child: Padding(padding: const EdgeInsets.fromLTRB(16, 4, 8, 16), child: chart(wide: true))),
+                        child: Padding(
+                            padding: const EdgeInsets.fromLTRB(Space.lg, Space.xs, Space.sm, Space.lg),
+                            child: chart(wide: true))),
                     SizedBox(
                       width: (c.maxWidth * 0.3).clamp(280.0, 420.0),
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 4, 24, 16),
+                        padding: const EdgeInsets.fromLTRB(Space.sm, Space.xs, Space.xl, Space.lg),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             status,
-                            const SizedBox(height: 12),
-                            if (coaching != null) ...[coaching, const SizedBox(height: 12)],
+                            const SizedBox(height: Space.md),
+                            AnimatedSize(
+                              duration: Motion.fade,
+                              alignment: Alignment.topCenter,
+                              child: AnimatedSwitcher(
+                                duration: Motion.fade,
+                                child: coaching == null
+                                    ? const SizedBox(width: double.infinity)
+                                    : Padding(
+                                        key: ValueKey(hold),
+                                        padding: const EdgeInsets.only(bottom: Space.md),
+                                        child: coaching),
+                              ),
+                            ),
                             Expanded(child: side),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: Space.lg),
                             endButton,
                           ],
                         ),
@@ -253,14 +294,24 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: status),
+                  Padding(padding: const EdgeInsets.symmetric(horizontal: Space.lg), child: status),
                   Expanded(
-                      child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: chart(wide: false))),
+                      child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: Space.md), child: chart(wide: false))),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                    child: coaching ?? SizedBox(height: 96, child: side),
+                    padding: const EdgeInsets.fromLTRB(Space.md, Space.sm, Space.md, Space.sm),
+                    child: AnimatedSize(
+                      duration: Motion.fade,
+                      alignment: Alignment.topCenter,
+                      child: AnimatedSwitcher(
+                        duration: Motion.fade,
+                        child: coaching == null
+                            ? SizedBox(key: const ValueKey('side'), height: 96, child: side)
+                            : KeyedSubtree(key: ValueKey(hold), child: coaching),
+                      ),
+                    ),
                   ),
-                  Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), child: endButton),
+                  Padding(padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.lg), child: endButton),
                 ],
               );
             },
@@ -274,7 +325,7 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(s.preset.name, style: const TextStyle(fontWeight: FontWeight.w700)),
+          title: Text(s.preset.name),
           actions: [
             // The legend while there is time to read it: watching, or paused.
             if (s.demo || paused)
@@ -288,9 +339,9 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
                 tooltip: 'What the steps mean',
               ),
             Padding(
-              padding: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.only(right: Space.lg),
               child: Wrap(
-                spacing: 8,
+                spacing: Space.sm,
                 children: [
                   StatusPill(icon: Icons.speed_rounded, text: '${s.preset.bpm.round()} bpm'),
                   // On a phone the routine name needs the room.
@@ -325,7 +376,7 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
         ),
       ChoiceHold() => _HoldCard(
           fill: fill,
-          color: Verdict.offBeat.ink(context),
+          color: StatusColors.warn(context),
           icon: Icons.replay_rounded,
           title: 'Bar $bar is a tricky one',
           detail: '${PracticeCoach.maxTries} tries without getting it. Slow it down, or move on and come back to it.',

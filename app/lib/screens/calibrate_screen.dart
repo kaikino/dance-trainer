@@ -187,10 +187,18 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
       },
       child: Scaffold(
         appBar: AppBar(title: const Text('Calibrate')),
+        bottomNavigationBar:
+            BottomActions(stackOnPhone: true, children: _finished ? _summaryActions(context) : _stepActions()),
         body: ContentWidth(
           child: FillScrollView(
-            padding: const EdgeInsets.all(24),
-            child: _finished ? _summary(context) : _step(context, _node!),
+            padding: EdgeInsets.all(Space.gutter(context)),
+            child: AnimatedSwitcher(
+              duration: Motion.fade,
+              child: KeyedSubtree(
+                key: ValueKey((_finished, _error != null)),
+                child: _finished ? _summary(context) : _step(context, _node!),
+              ),
+            ),
           ),
         ),
       ),
@@ -218,14 +226,14 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '${widget.nodes.length > 1 ? 'Foot ${_index + 1} of ${widget.nodes.length}: ' : ''}'
-          'calibrating the $foot foot, so the app knows which way is forward.',
-          style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant),
+          '${widget.nodes.length > 1 ? 'Foot ${_index + 1} of ${widget.nodes.length}. ' : ''}'
+          'Calibrating the $foot foot, so the app knows which way is forward.',
+          style: theme.textTheme.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
         ),
         const Spacer(),
-        const SizedBox(height: 12),
+        const SizedBox(height: Space.md),
         if (failed)
-          Icon(Icons.error_outline, size: 72, color: scheme.error)
+          Icon(Icons.error_rounded, size: 72, color: scheme.error)
         else
           FeetDiagram(
             active: n.role,
@@ -237,36 +245,56 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
             showStance: still,
             height: 240,
           ),
-        const SizedBox(height: 16),
-        Text(failed ? 'That did not work' : title,
-            textAlign: TextAlign.center, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 8),
+        const SizedBox(height: Space.lg),
+        Text(failed ? 'That did not work' : title, textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
+        const SizedBox(height: Space.sm),
         Text(failed ? _error! : detail, textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
-        // The stance the step classifier assumes: big, while it is being measured.
-        if (!failed && still) ...[
-          const SizedBox(height: 16),
-          _StanceCard(),
+        // The stance the step classifier assumes: big, while it is being
+        // measured. Its slot is kept while sliding so nothing above it jumps.
+        if (!failed) ...[
+          const SizedBox(height: Space.lg),
+          AnimatedOpacity(opacity: still ? 1 : 0, duration: Motion.fade, child: _StanceCard()),
         ],
         if (!failed) ...[
-          const SizedBox(height: 20),
+          const SizedBox(height: Space.xl),
           _Progress(phase: phase, slides: st?.calSlides ?? 0, total: _slides),
         ],
         const Spacer(),
-        const SizedBox(height: 16),
-        OverflowBar(
-          alignment: MainAxisAlignment.end,
-          overflowAlignment: OverflowBarAlignment.end,
-          spacing: 8,
-          overflowSpacing: 8,
-          children: [
-            if (failed && widget.nodes.length > 1) TextButton(onPressed: _skip, child: const Text('Skip this foot')),
-            TextButton(onPressed: _cancel, child: const Text('Cancel')),
-            if (failed) FilledButton(onPressed: _start, child: const Text('Try again')),
-          ],
-        ),
       ],
     );
   }
+
+  List<Widget> _stepActions() {
+    final failed = _error != null;
+    return [
+      if (failed)
+        FilledButton.icon(onPressed: _start, icon: const Icon(Icons.refresh_rounded), label: const Text('Try again')),
+      if (failed && widget.nodes.length > 1) OutlinedButton(onPressed: _skip, child: const Text('Skip this foot')),
+      OutlinedButton(onPressed: _cancel, child: const Text('Cancel')),
+    ];
+  }
+
+  List<Widget> _summaryActions(BuildContext context) => [
+        FilledButton.icon(
+          onPressed: widget.returnToRoutine
+              ? () => Navigator.pop(context)
+              : () => Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (_) => PresetScreen(manager: widget.manager)),
+                  ),
+          icon: const Icon(Icons.queue_music_rounded),
+          label: Text(widget.returnToRoutine ? 'Back to the routine' : 'Choose a routine',
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+        OutlinedButton.icon(
+          onPressed: () => Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => LiveViewScreen(manager: widget.manager)),
+          ),
+          icon: const Icon(Icons.threed_rotation_rounded),
+          label: const Text('Live view', maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+      ];
 
   Widget _summary(BuildContext context) {
     final theme = Theme.of(context);
@@ -274,43 +302,19 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Spacer(),
-        Icon(Icons.check_circle_outline, size: 72, color: _skipped.isEmpty ? okColor(context) : warnColor(context)),
-        const SizedBox(height: 16),
+        Icon(Icons.check_circle_rounded,
+            size: 72, color: _skipped.isEmpty ? StatusColors.ok(context) : StatusColors.warn(context)),
+        const SizedBox(height: Space.lg),
         Text(_skipped.isEmpty ? 'Calibrated' : 'Partly calibrated',
             textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
-        const SizedBox(height: 8),
+        const SizedBox(height: Space.sm),
         for (final e in _done.entries)
           Text('${footName(e.key.role)} foot: ${_friendly(e.value)}',
               textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
         for (final n in _skipped)
-          Text('${footName(n.role)} foot: not calibrated', textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
+          Text('${footName(n.role)} foot: not calibrated',
+              textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
         const Spacer(),
-        const SizedBox(height: 16),
-        SizedBox(
-          height: 56,
-          child: FilledButton.icon(
-            onPressed: widget.returnToRoutine
-                ? () => Navigator.pop(context)
-                : () => Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(builder: (_) => PresetScreen(manager: widget.manager)),
-                    ),
-            icon: const Icon(Icons.queue_music),
-            label: Text(widget.returnToRoutine ? 'Back to the routine' : 'Choose a routine'),
-          ),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 52,
-          child: OutlinedButton.icon(
-            onPressed: () => Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => LiveViewScreen(manager: widget.manager)),
-            ),
-            icon: const Icon(Icons.threed_rotation),
-            label: const Text('Check in Live view'),
-          ),
-        ),
       ],
     );
   }
@@ -330,11 +334,13 @@ class _Progress extends StatelessWidget {
           label: '$label, ${done ? 'done' : now ? 'now' : 'to do'}',
           excludeSemantics: true,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: Space.xs, vertical: Space.xs),
             child: StatusPill(
-              icon: done ? Icons.check_circle : (now ? Icons.radio_button_checked : Icons.radio_button_unchecked),
+              icon: done
+                  ? Icons.check_circle_rounded
+                  : (now ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded),
               text: label,
-              color: done ? okColor(context) : (now ? scheme.primary : null),
+              color: done ? StatusColors.ok(context) : (now ? scheme.primary : null),
             ),
           ),
         );
@@ -343,8 +349,7 @@ class _Progress extends StatelessWidget {
       alignment: WrapAlignment.center,
       children: [
         mark('Still', !still, still),
-        for (var i = 0; i < total; i++)
-          mark('Slide ${i + 1}', slides > i, phase == CalPhase.slide && slides == i),
+        for (var i = 0; i < total; i++) mark('Slide ${i + 1}', slides > i, phase == CalPhase.slide && slides == i),
       ],
     );
   }
@@ -357,16 +362,15 @@ class _StanceCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: scheme.tertiaryContainer, borderRadius: BorderRadius.circular(16)),
+      padding: const EdgeInsets.all(Space.lg),
+      decoration: BoxDecoration(color: scheme.tertiaryContainer, borderRadius: Radii.mdAll),
       child: Row(
         children: [
           Icon(Icons.accessibility_new_rounded, color: scheme.onTertiaryContainer, size: 32),
-          const SizedBox(width: 14),
+          const SizedBox(width: Space.md),
           Expanded(
             child: Text(stanceInstruction,
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(color: scheme.onTertiaryContainer, fontWeight: FontWeight.w600, height: 1.35)),
+                style: theme.textTheme.titleMedium?.copyWith(color: scheme.onTertiaryContainer, height: 1.35)),
           ),
         ],
       ),

@@ -24,9 +24,15 @@ class Preset {
 
   const Preset(this.id, this.name, this.bpm, this.countInBeats, this.steps, {this.music, this.tempo = 1.0});
 
-  /// Same routine at a scaled tempo (Practice mode slow-down).
-  Preset withTempo(double factor) =>
-      Preset(id, name, bpm * factor, countInBeats, steps, music: music, tempo: tempo * factor);
+  /// Same routine at a scaled tempo (Practice mode slow-down). The bpm is
+  /// rounded to 0.1, the resolution the node keeps (bpm_x10 on the wire), and
+  /// the music speed is derived from it, so the music, the chart and the
+  /// node's beat all agree exactly.
+  Preset withTempo(double factor) {
+    final baseBpm = bpm / tempo;
+    final newBpm = (bpm * factor * 10).round() / 10;
+    return Preset(id, name, newBpm, countInBeats, steps, music: music, tempo: newBpm / baseBpm);
+  }
 
   static Future<Preset> loadAsset(String path) async =>
       Preset.fromJson(jsonDecode(await rootBundle.loadString(path)) as Map<String, dynamic>);
@@ -49,8 +55,9 @@ class Preset {
         ));
       }
     }
-    return Preset(j['id'] as int, j['name'] as String, (j['bpm'] as num).toDouble(),
-        j['count_in_beats'] as int? ?? 4, steps, music: j['music'] as String?);
+    return Preset(
+        j['id'] as int, j['name'] as String, (j['bpm'] as num).toDouble(), j['count_in_beats'] as int? ?? 4, steps,
+        music: j['music'] as String?);
   }
 
   double get beatMs => 60000 / bpm;
@@ -61,23 +68,22 @@ class Preset {
 
   /// The schedule entries for one node, optionally only from [fromBeat] on
   /// (a practice rewind restarts the nodes mid-routine).
-  List<(double, StepClass)> scheduleFor(Role foot, {double fromBeat = 1}) => steps
-      .where((s) => s.foot == foot && s.beat >= fromBeat)
-      .map((s) => (s.beat, s.stepClass))
-      .toList();
+  List<(double, StepClass)> scheduleFor(Role foot, {double fromBeat = 1}) =>
+      steps.where((s) => s.foot == foot && s.beat >= fromBeat).map((s) => (s.beat, s.stepClass)).toList();
 
   /// Indices into [steps] per foot, in beat order (built once per step list).
   static final _byFoot = Expando<Map<Role, List<int>>>();
   Map<Role, List<int>> get _footIndex => _byFoot[steps] ??= {
         for (final f in Role.values)
-          f: [for (var i = 0; i < steps.length; i++) if (steps[i].foot == f) i]
-            ..sort((a, b) => steps[a].beat.compareTo(steps[b].beat)),
+          f: [
+            for (var i = 0; i < steps.length; i++)
+              if (steps[i].foot == f) i
+          ]..sort((a, b) => steps[a].beat.compareTo(steps[b].beat)),
       };
 
   /// Indices into [steps] in beat order (ties keep the file order).
   static final _byBeat = Expando<List<int>>();
-  List<int> get beatOrder => _byBeat[steps] ??= [for (var i = 0; i < steps.length; i++) i]
-    ..sort((a, b) {
+  List<int> get beatOrder => _byBeat[steps] ??= [for (var i = 0; i < steps.length; i++) i]..sort((a, b) {
       final c = steps[a].beat.compareTo(steps[b].beat);
       return c != 0 ? c : a.compareTo(b);
     });

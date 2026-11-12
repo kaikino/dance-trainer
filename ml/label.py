@@ -114,10 +114,13 @@ def label_session(d: Path) -> None:
     if not is_capture(meta):
         print(f"{d.name}: mode {meta.get('mode')!r}, skipped")
         return
+    segs = segments(meta)
+    if not segs:
+        print(f"{d.name}: no beat timeline (the session never started), skipped")
+        return
     ev = pd.read_csv(d / "events.csv", dtype={"label_source": str, "foot": str}, keep_default_na=False)
     ev["label_class"] = pd.to_numeric(ev["label_class"], errors="coerce").fillna(-1).astype(int)
     sched = expand(load_preset(meta["preset_id"]))
-    segs = segments(meta)
     t_app = strike_app_ms(ev, meta, segs[0].t0_app_ms)
     usable = usable_events(ev)
 

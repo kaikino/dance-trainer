@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../ble/protocol.dart';
 import 'foot_shape.dart';
+import 'tokens.dart';
 
 enum FeetArrow { none, forward, back }
 
@@ -120,6 +121,7 @@ class _FeetPainter extends CustomPainter {
     Role.left: soleOutline(left: true),
     Role.right: soleOutline(left: false),
   };
+  static final _caps = {for (final e in _outlines.entries) e.key: toeCapOutline(e.value)};
 
   /// Gap between the feet's centre lines, in foot lengths (one foot-width
   /// between them, as in the stance).
@@ -171,13 +173,10 @@ class _FeetPainter extends CustomPainter {
         canvas.drawPath(path, idle);
         canvas.drawPath(path, idleEdge);
       }
-      // Toe end slightly darker, as on the live view.
-      final cap = [
-        for (final p in _outlines[f]!)
-          if (p.$1 >= 0.32) pt(f, p, fwd: on ? fwd : 0)
-      ];
+      // Toe cap: the sole's colour darkened, as on the live view.
+      final cap = [for (final p in _caps[f]!) pt(f, p, fwd: on ? fwd : 0)];
       canvas.drawPath(Path()..addPolygon(cap, true),
-          Paint()..color = (on ? scheme.onPrimary : scheme.onSurface).withValues(alpha: 0.18));
+          Paint()..color = FootColors.cap(on ? scheme.primary : scheme.surfaceContainerHighest));
       if (showNodes) _node(canvas, f, pt, scale, fwd: on ? fwd : 0);
     }
 
@@ -253,8 +252,8 @@ class _FeetPainter extends CustomPainter {
     final tp = TextPainter(
       text: TextSpan(
         text: f == Role.left ? 'L' : 'R',
-        style: (textStyle ?? const TextStyle()).copyWith(
-            color: scheme.onInverseSurface, fontSize: 0.09 * scale, fontWeight: FontWeight.w800, height: 1),
+        style: (textStyle ?? const TextStyle())
+            .copyWith(color: scheme.onInverseSurface, fontSize: 0.09 * scale, fontWeight: AppType.heavy, height: 1),
       ),
       textDirection: TextDirection.ltr,
     )..layout();

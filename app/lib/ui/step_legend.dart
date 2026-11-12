@@ -44,20 +44,20 @@ class StepLegend extends StatelessWidget {
     Widget badge(IconData? icon, Color bg, Color fg) => Container(
           width: 40,
           height: 40,
-          margin: const EdgeInsets.only(right: 6),
+          margin: const EdgeInsets.only(right: Space.sm),
           decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
           child: icon == null ? null : Icon(icon, color: fg, size: 24),
         );
     Widget row({required List<Widget> leading, required String title, required String text}) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: Space.sm),
           child: Row(
             children: [
               SizedBox(width: 92, child: Row(children: leading)),
-              const SizedBox(width: 8),
+              const SizedBox(width: Space.sm),
               Expanded(
                 child: Text.rich(
                   TextSpan(children: [
-                    TextSpan(text: '$title  ', style: const TextStyle(fontWeight: FontWeight.w800)),
+                    TextSpan(text: '$title  ', style: const TextStyle(fontWeight: AppType.heavy)),
                     TextSpan(text: text, style: TextStyle(color: scheme.onSurfaceVariant)),
                   ]),
                   style: theme.textTheme.titleMedium,
@@ -73,13 +73,13 @@ class StepLegend extends StatelessWidget {
       maxChildSize: 0.95,
       builder: (context, controller) => ListView(
         controller: controller,
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+        padding: const EdgeInsets.fromLTRB(Space.xl, 0, Space.xl, Space.xl),
         children: [
-          Text('The steps', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 4),
+          Text('The steps', style: theme.textTheme.heading),
+          const SizedBox(height: Space.xs),
           Text('Left foot, then right foot. Arrows point the way the foot moves, seen from behind you.',
               style: theme.textTheme.bodyLarge?.copyWith(color: scheme.onSurfaceVariant)),
-          const SizedBox(height: 8),
+          const SizedBox(height: Space.sm),
           for (final c in _legendSteps)
             row(
               leading: [

@@ -148,9 +148,14 @@ class SessionRecorder {
       final g = gyr?.samples[i];
       sink.writeln([
         (acc.t0NodeUs + dtUs) & 0xffffffff,
-        a.ax, a.ay, a.az,
+        a.ax,
+        a.ay,
+        a.az,
         ...g == null ? ['', '', ''] : [g.ax, g.ay, g.az],
-        q(a.qw), q(a.qx), q(a.qy), q(a.qz),
+        q(a.qw),
+        q(a.qx),
+        q(a.qy),
+        q(a.qz),
         (appT0 + dtUs / 1000).toStringAsFixed(1),
       ].join(','));
     }
@@ -218,8 +223,10 @@ class SessionRecorder {
       // The last offset per node; clock_syncs lists every one (a reconnect adds one).
       'nodes': {
         for (final n in nodes.nodes)
-          if (n.connected) n.roleLabel: {'offset_us': n.offsetUs, 'fw_version': n.status?.fwVersion}
-          else if (_nodeMeta[n.role] case final meta?) n.roleLabel: meta,
+          if (n.connected)
+            n.roleLabel: {'offset_us': n.offsetUs, 'fw_version': n.status?.fwVersion}
+          else if (_nodeMeta[n.role] case final meta?)
+            n.roleLabel: meta,
       },
       'clock_syncs': _syncs,
       'app_version': appVersion,
@@ -228,6 +235,23 @@ class SessionRecorder {
     };
     await File('${dir.path}/session.json').writeAsString(const JsonEncoder.withIndent('  ').convert(meta));
     debugPrint('session saved: ${dir.path} (${events.length} events)');
+  }
+
+  /// Stops recording and deletes the folder: the session never started.
+  Future<void> discard() async {
+    if (!_begun || _ended) return;
+    _ended = true;
+    for (final s in _subs) {
+      await s.cancel();
+    }
+    _pending.clear();
+    for (final s in _sinks.values) {
+      await s.close();
+    }
+    try {
+      await dir.delete(recursive: true);
+    } catch (_) {}
+    debugPrint('session discarded: ${dir.path} (never started)');
   }
 
   List<File> get files => [

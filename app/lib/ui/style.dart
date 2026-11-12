@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../ble/protocol.dart';
 import '../models/preset.dart';
+import 'tokens.dart';
+
+export 'tokens.dart';
 
 /// Shared words, colours, icons and small widgets, so every screen names and
 /// draws steps and verdicts the same way.
@@ -76,7 +79,9 @@ IconData? stepIcon(StepClass c, Role foot) {
   };
 }
 
-/// Colour, name and icon for each verdict. Pending steps use the theme's primary.
+/// Colour, name and icon for each verdict. Pending steps use the theme's
+/// primary. These colours mean only how a step was judged: a score is drawn in
+/// the theme's primary and a status (calibrated, reconnected) in [StatusColors].
 ///
 /// Two colour roles, so each reads in light and dark themes:
 /// - [fill]: a solid background under white text and icons (chart footprints,
@@ -110,6 +115,7 @@ extension VerdictStyle on Verdict {
 
   Color ink(BuildContext context) => inkFor(Theme.of(context).brightness);
 
+  /// Lower case, like every verdict label (chart pops, tallies, pills).
   String get label => switch (this) {
         Verdict.correct => 'correct',
         Verdict.wrongStep => 'wrong step',
@@ -119,20 +125,31 @@ extension VerdictStyle on Verdict {
         Verdict.unjudged => 'not judged',
       };
 
+  /// The label after a count: "1 wrong step", "5 wrong steps", "3 missed".
+  String labelFor(int n) => switch (this) {
+        Verdict.wrongStep => n == 1 ? 'wrong step' : 'wrong steps',
+        Verdict.extra => n == 1 ? 'extra step' : 'extra steps',
+        _ => label,
+      };
+
+  /// "5 wrong steps".
+  String counted(int n) => '$n ${labelFor(n)}';
+
+  /// All filled, rounded glyphs.
   IconData get icon => switch (this) {
         Verdict.correct => Icons.check_circle_rounded,
         Verdict.wrongStep => Icons.cancel_rounded,
-        Verdict.offBeat => Icons.schedule_rounded,
-        Verdict.missed => Icons.remove_circle_outline_rounded,
-        Verdict.extra || Verdict.unjudged => Icons.help_outline_rounded,
+        Verdict.offBeat => Icons.watch_later_rounded,
+        Verdict.missed => Icons.do_not_disturb_on_rounded,
+        Verdict.extra || Verdict.unjudged => Icons.help_rounded,
       };
 }
 
 /// The verdicts a dancer is scored on, in display order.
 const scoredVerdicts = [Verdict.correct, Verdict.wrongStep, Verdict.offBeat, Verdict.missed];
 
-/// The scored verdict with the longest label, to size a row of tiles by.
-final widestVerdict = scoredVerdicts.reduce((a, b) => a.label.length >= b.label.length ? a : b);
+/// The longest scored-verdict label after a count, to size a row of tiles by.
+final widestVerdictLabel = scoredVerdicts.map((v) => v.labelFor(2)).reduce((a, b) => a.length >= b.length ? a : b);
 
 /// [child], laid out at least as large as [sizer] (drawn invisibly). In a
 /// row of equal tiles, each FittedBox then scales its content by the same
@@ -148,14 +165,6 @@ class SizedLike extends StatelessWidget {
         children: [ExcludeSemantics(child: Visibility.maintain(visible: false, child: sizer)), child],
       );
 }
-
-/// Accuracy band colour (ink): green from 85%, amber from 60%, else red.
-Color accuracyColor(BuildContext context, double acc) =>
-    (acc >= 0.85 ? Verdict.correct : (acc >= 0.6 ? Verdict.offBeat : Verdict.wrongStep)).ink(context);
-
-/// Status text and icons on the theme's surfaces: all good, and needs attention.
-Color okColor(BuildContext context) => Verdict.correct.ink(context);
-Color warnColor(BuildContext context) => Verdict.offBeat.ink(context);
 
 /// Black or white, whichever reads on [background] (icons on filled circles).
 Color onColor(Color background) => background.computeLuminance() > 0.4 ? Colors.black87 : Colors.white;
@@ -183,7 +192,7 @@ class FillScrollView extends StatelessWidget {
 
 /// Centres content and keeps it at a readable width on a tablet.
 class ContentWidth extends StatelessWidget {
-  const ContentWidth({super.key, required this.child, this.maxWidth = 720});
+  const ContentWidth({super.key, required this.child, this.maxWidth = Space.column});
   final Widget child;
   final double maxWidth;
 
@@ -199,7 +208,7 @@ class ContentWidth extends StatelessWidget {
 
 /// Section heading used on every list screen.
 class SectionHeader extends StatelessWidget {
-  const SectionHeader(this.text, {super.key, this.trailing, this.top = 24});
+  const SectionHeader(this.text, {super.key, this.trailing, this.top = Space.xl});
   final String text;
   final Widget? trailing;
   final double top;
@@ -208,13 +217,12 @@ class SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: EdgeInsets.fromLTRB(4, top, 4, 10),
+      padding: EdgeInsets.fromLTRB(Space.xs, top, Space.xs, Space.sm),
       child: Row(
         children: [
           Expanded(
             child: Text(text.toUpperCase(),
-                style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
+                style: theme.textTheme.overline.copyWith(color: theme.colorScheme.onSurfaceVariant)),
           ),
           if (trailing != null) trailing!,
         ],
@@ -224,28 +232,42 @@ class SectionHeader extends StatelessWidget {
 }
 
 /// A bar of buttons pinned to the bottom of a screen. The first button is the
-/// main one and gets the most room.
+/// main one and gets the most room. With [stackOnPhone], a phone gets the
+/// buttons one above the other at full width instead (for long labels).
 class BottomActions extends StatelessWidget {
-  const BottomActions({super.key, required this.children, this.maxWidth = 720});
+  const BottomActions({super.key, required this.children, this.maxWidth = Space.column, this.stackOnPhone = false});
   final List<Widget> children;
   final double maxWidth;
+  final bool stackOnPhone;
 
   @override
   Widget build(BuildContext context) {
+    final stack = stackOnPhone && !Space.isTablet(context);
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainer,
       child: ContentWidth(
         maxWidth: maxWidth,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          child: Row(
-            children: [
-              for (var i = 0; i < children.length; i++) ...[
-                if (i > 0) const SizedBox(width: 12),
-                Expanded(flex: i == 0 ? 2 : 1, child: SizedBox(height: 56, child: children[i])),
-              ],
-            ],
-          ),
+          padding: EdgeInsets.symmetric(horizontal: Space.gutter(context), vertical: Space.md),
+          child: stack
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < children.length; i++) ...[
+                      if (i > 0) const SizedBox(height: Space.sm),
+                      SizedBox(height: Sizes.button, child: children[i]),
+                    ],
+                  ],
+                )
+              : Row(
+                  children: [
+                    for (var i = 0; i < children.length; i++) ...[
+                      if (i > 0) const SizedBox(width: Space.md),
+                      Expanded(flex: i == 0 ? 2 : 1, child: SizedBox(height: Sizes.button, child: children[i])),
+                    ],
+                  ],
+                ),
         ),
       ),
     );
@@ -263,24 +285,22 @@ class StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = color ?? Theme.of(context).colorScheme.onSurfaceVariant;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.xs),
+      decoration: BoxDecoration(color: c.withValues(alpha: 0.12), borderRadius: Radii.fullAll),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 16, color: c),
-          const SizedBox(width: 6),
-          Text(text, style: TextStyle(color: c, fontWeight: FontWeight.w600)),
+          const SizedBox(width: Space.xs),
+          Text(text, style: Theme.of(context).textTheme.label.copyWith(color: c)),
         ],
       ),
     );
   }
 }
 
-/// Accuracy as a thick coloured ring with the percentage in the middle.
+/// Accuracy as a thick ring in the theme's primary, with the percentage in
+/// the middle.
 class ScoreRing extends StatelessWidget {
   const ScoreRing({super.key, required this.value, required this.caption, this.size = 180});
   final double? value;
@@ -291,7 +311,7 @@ class ScoreRing extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final v = value;
-    final color = v == null ? theme.colorScheme.outline : accuracyColor(context, v);
+    final color = v == null ? theme.colorScheme.outline : theme.colorScheme.primary;
     return SizedBox.square(
       dimension: size,
       child: Stack(
@@ -309,8 +329,9 @@ class ScoreRing extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(v == null ? '–' : '${(v * 100).round()}%',
-                    style: TextStyle(fontSize: size * 0.25, fontWeight: FontWeight.w800, color: color, height: 1)),
-                const SizedBox(height: 4),
+                    // Sized from the ring, not the type scale: it fills the middle.
+                    style: theme.textTheme.display.copyWith(fontSize: size * 0.25, color: color, height: 1)),
+                const SizedBox(height: Space.xs),
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: size * 0.15),
                   child: Text(caption,
@@ -361,8 +382,10 @@ class StepPatternPreview extends StatelessWidget {
       );
     }
 
-    final labelStyle = Theme.of(context).textTheme.labelLarge?.copyWith(
-        fontWeight: FontWeight.w800, color: scheme.onSurfaceVariant, height: 1);
+    final labelStyle = Theme.of(context)
+        .textTheme
+        .label
+        .copyWith(fontWeight: AppType.heavy, color: scheme.onSurfaceVariant, height: 1);
     return Semantics(
       label: 'First ${beats ~/ 4} bars, left foot over right foot',
       child: Column(

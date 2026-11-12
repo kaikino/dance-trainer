@@ -96,9 +96,9 @@ class StepChartController extends ChangeNotifier {
   void hit(Role foot, Verdict v, {int timingErrMs = 0}) {
     final label = switch (v) {
       Verdict.correct => null, // a check mark
-      Verdict.offBeat => timingErrMs > 0 ? 'Late' : 'Early',
-      Verdict.wrongStep => 'Wrong',
-      Verdict.missed => 'Miss',
+      Verdict.offBeat => timingErrMs > 0 ? 'late' : 'early',
+      Verdict.wrongStep => 'wrong',
+      Verdict.missed => 'miss',
       _ => null,
     };
     if (v == Verdict.extra || v == Verdict.unjudged) return;
@@ -195,8 +195,8 @@ class _StepChartPainter extends CustomPainter {
 
     // 1. Lanes, hit zone and beat grid (bar lines stronger).
     for (final (_, rect) in lanes) {
-      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(20)),
-          Paint()..color = scheme.surfaceContainerLow);
+      canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, const Radius.circular(Radii.lg)), Paint()..color = scheme.surfaceContainerLow);
       canvas.drawRect(Rect.fromLTRB(rect.left, nowY - pxPerBeat * 0.25, rect.right, nowY + pxPerBeat * 0.25),
           Paint()..color = scheme.primary.withValues(alpha: 0.07));
     }
@@ -217,7 +217,7 @@ class _StepChartPainter extends CustomPainter {
       final age = nowMs - h.atMs;
       if (age > StepChartController.washMs) continue;
       final rect = lanes[h.foot.index].$2;
-      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(20)),
+      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(Radii.lg)),
           Paint()..color = _hitColor(h).withValues(alpha: 0.28 * (1 - age / StepChartController.washMs)));
     }
 
@@ -243,7 +243,7 @@ class _StepChartPainter extends CustomPainter {
       final cx = laneX(s.foot) + laneW / 2;
       final cy = nowY - dBeat * pxPerBeat;
       final scale = next[s.foot] == i ? 1.15 : 1.0;
-      final tp = _text(stepLabel(s.stepClass), captionSize, scheme.onSurfaceVariant, FontWeight.w700,
+      final tp = _text(stepLabel(s.stepClass), captionSize, scheme.onSurfaceVariant, AppType.strong,
           outline: scheme.surfaceContainerLow);
       tp.paint(canvas, Offset(cx - tp.width / 2, cy - r * scale - 6 - tp.height));
     }
@@ -284,14 +284,20 @@ class _StepChartPainter extends CustomPainter {
     // 5. The now line, on top: a soft glow and a solid primary line.
     for (final (_, rect) in lanes) {
       final a = Offset(rect.left + 10, nowY), b = Offset(rect.right - 10, nowY);
-      canvas.drawLine(a, b, Paint()
-        ..color = scheme.primary.withValues(alpha: 0.22)
-        ..strokeWidth = 18
-        ..strokeCap = StrokeCap.round);
-      canvas.drawLine(a, b, Paint()
-        ..color = scheme.primary
-        ..strokeWidth = 6
-        ..strokeCap = StrokeCap.round);
+      canvas.drawLine(
+          a,
+          b,
+          Paint()
+            ..color = scheme.primary.withValues(alpha: 0.22)
+            ..strokeWidth = 18
+            ..strokeCap = StrokeCap.round);
+      canvas.drawLine(
+          a,
+          b,
+          Paint()
+            ..color = scheme.primary
+            ..strokeWidth = 6
+            ..strokeCap = StrokeCap.round);
     }
 
     // 6. Pop labels: what the last verdict in each lane was, big.
@@ -311,10 +317,9 @@ class _StepChartPainter extends CustomPainter {
       // A cue sits on the theme's primary (light in dark mode): its own on-colour.
       final tp = h.label == null
           ? null
-          : _text(h.label!, popSize, h.verdict == null ? _scheme.onPrimary : Colors.white, FontWeight.w800);
-      final pill = tp == null
-          ? Size(popSize * 1.9, popSize * 1.5)
-          : Size(tp.width + popSize * 1.1, tp.height + popSize * 0.35);
+          : _text(h.label!, popSize, h.verdict == null ? _scheme.onPrimary : Colors.white, AppType.heavy);
+      final pill =
+          tp == null ? Size(popSize * 1.9, popSize * 1.5) : Size(tp.width + popSize * 1.1, tp.height + popSize * 0.35);
       final pillRect = Rect.fromCenter(center: Offset.zero, width: pill.width, height: pill.height);
       // The fade is one layer alpha, so the cached text painters keep one colour.
       if (alpha < 1) canvas.saveLayer(pillRect.inflate(16), Paint()..color = Color.fromRGBO(0, 0, 0, alpha));
@@ -326,8 +331,8 @@ class _StepChartPainter extends CustomPainter {
       // A white rim sets the pill apart from the same-coloured step under it.
       canvas.drawRRect(RRect.fromRectAndRadius(pillRect.inflate(4), Radius.circular(pill.height / 2 + 4)),
           Paint()..color = Colors.white);
-      canvas.drawRRect(RRect.fromRectAndRadius(pillRect, Radius.circular(pill.height / 2)),
-          Paint()..color = _hitColor(h));
+      canvas.drawRRect(
+          RRect.fromRectAndRadius(pillRect, Radius.circular(pill.height / 2)), Paint()..color = _hitColor(h));
       if (tp == null) {
         _icon(canvas, Icons.check_rounded, Offset.zero, popSize * 1.3, Colors.white);
       } else {
@@ -340,10 +345,12 @@ class _StepChartPainter extends CustomPainter {
     // 7. Header: lane names on an opaque band, so steps scroll under it.
     for (final (f, rect) in lanes) {
       final head = Rect.fromLTWH(rect.left, 0, rect.width, headerH);
-      canvas.drawRRect(RRect.fromRectAndCorners(head, topLeft: const Radius.circular(20), topRight: const Radius.circular(20)),
+      canvas.drawRRect(
+          RRect.fromRectAndCorners(head,
+              topLeft: const Radius.circular(Radii.lg), topRight: const Radius.circular(Radii.lg)),
           Paint()..color = scheme.surfaceContainerHigh);
-      final tp = _text(f == Role.left ? 'LEFT' : 'RIGHT', headerH * 0.4, scheme.onSurface, FontWeight.w800,
-          letterSpacing: 3);
+      final tp =
+          _text(f == Role.left ? 'left' : 'right', headerH * 0.4, scheme.onSurface, AppType.heavy, letterSpacing: 1);
       tp.paint(canvas, Offset(head.center.dx - tp.width / 2, head.center.dy - tp.height / 2));
     }
     canvas.restore();
@@ -377,7 +384,8 @@ class _StepChartPainter extends CustomPainter {
 
   static TextPainter _layoutText(String s, double size, Color color, FontWeight weight,
       {Color? outline, double letterSpacing = 0}) {
-    final style = TextStyle(fontSize: size, fontWeight: weight, color: color, letterSpacing: letterSpacing, height: 1.1);
+    final style =
+        TextStyle(fontSize: size, fontWeight: weight, color: color, letterSpacing: letterSpacing, height: 1.1);
     return TextPainter(
       text: TextSpan(
         text: s,

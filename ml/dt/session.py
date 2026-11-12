@@ -41,10 +41,12 @@ class Segment:
 
 def segments(meta: dict) -> list[Segment]:
     """session.json `segments` (one per start: practice rewind, slow-down, resume),
-    or a single segment from the top-level t0_app_ms/bpm for older sessions."""
+    or a single segment from the top-level t0_app_ms/bpm for older sessions.
+    Empty when the session never started (t0_app_ms null, no segments): callers
+    skip such a session, it has no beat timeline."""
     segs = [Segment(float(s.get("from_beat", 1)), float(s["t0_app_ms"]), float(s.get("bpm", meta["bpm"])))
-            for s in meta.get("segments") or []]
-    if not segs:
+            for s in meta.get("segments") or [] if s.get("t0_app_ms") is not None]
+    if not segs and meta.get("t0_app_ms") is not None:
         segs = [Segment(1.0, float(meta["t0_app_ms"]), float(meta["bpm"]))]
     return segs
 
