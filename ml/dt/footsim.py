@@ -483,5 +483,7 @@ def simulate(cls: StepClass, rng: np.random.Generator, R: Realism = Realism(), f
                  kick_deg=(target.kick["phi"] / D2R if target.kick else 0.0), prev=int(prev_cls),
                  peak_z_cm=float((ankle[after, 2].max() - b.ha) * 100))
     if debug:
-        truth["debug"] = dict(t=t, ankle=ankle, hip=hip, zs=zs, f_s=f_s, w=w, beta=beta)
+        truth["debug"] = dict(t=t, ankle=ankle, hip=hip, zs=zs, f_s=f_s, w=w, beta=beta,
+                              pel=pel, other=other, hip_half=b.hip_half, hip_h=b.hip_h, ha=b.ha, H=b.H,
+                              acc_bias=ba, R_SC=R_SC)
     return Trial(cls=cls, foot=foot, fused=fused, t_contact=t_c, t_lift=target.t0, t_prev_contact=t_prev_c, truth=truth)
