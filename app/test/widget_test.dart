@@ -49,12 +49,38 @@ void main() {
       ],
     });
 
-    test('expands repeats with continuing beats', () {
-      expect(p.steps.map((s) => s.beat).toList(), [1.0, 2.0, 3.0, 4.0]);
+    test('expands repeats over whole bars by default', () {
+      // Last step on beat 2, so one loop is a 4-beat bar.
+      expect(p.steps.map((s) => s.beat).toList(), [1.0, 2.0, 5.0, 6.0]);
+    });
+
+    test('loop length rounds up to a multiple of 4 unless length_beats says otherwise', () {
+      Preset loop(double last, {num? length}) => Preset.fromJson({
+            'id': 1,
+            'name': 'L',
+            'bpm': 120,
+            'loop': true,
+            'repeats': 2,
+            if (length != null) 'length_beats': length,
+            'steps': [
+              {'beat': 1.0, 'foot': 'L', 'class': 'forward'},
+              {'beat': last, 'foot': 'R', 'class': 'back'},
+            ],
+          });
+      expect(loop(8).steps[2].beat, 9.0);
+      expect(loop(6.5).steps[2].beat, 9.0);
+      expect(loop(4).steps[2].beat, 5.0);
+      expect(loop(3, length: 3).steps[2].beat, 4.0);
+    });
+
+    test('schedule from a beat on, for a rewind', () {
+      expect(p.scheduleFor(Role.left, fromBeat: 2), [(5.0, StepClass.forward)]);
+      expect(Preset.barStart(7.0), 5.0);
+      expect(Preset.barStart(4.5), 1.0);
     });
 
     test('per-foot schedule', () {
-      expect(p.scheduleFor(Role.left), [(1.0, StepClass.forward), (3.0, StepClass.forward)]);
+      expect(p.scheduleFor(Role.left), [(1.0, StepClass.forward), (5.0, StepClass.forward)]);
     });
 
     test('beat timing', () {

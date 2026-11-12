@@ -4,15 +4,20 @@ import 'package:flutter/material.dart';
 
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
+import '../ui/style.dart';
 import 'live_view_screen.dart';
+import 'preset_screen.dart';
 
 /// Guides the dancer through calibrating one or both feet, one foot at a time.
 /// The node does the measuring and reports each phase in Status; this screen
 /// says what to do now. The buzzes are only a backup for the same cues.
 class CalibrateScreen extends StatefulWidget {
-  const CalibrateScreen({super.key, required this.manager, required this.nodes});
+  const CalibrateScreen({super.key, required this.manager, required this.nodes, this.returnToRoutine = false});
   final NodeManager manager;
   final List<NodeClient> nodes;
+
+  /// Opened from the routine screen: when done, go back there instead of opening it.
+  final bool returnToRoutine;
 
   @override
   State<CalibrateScreen> createState() => _CalibrateScreenState();
@@ -169,9 +174,11 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
       },
       child: Scaffold(
         appBar: AppBar(title: const Text('Calibrate')),
-        body: Padding(
-          padding: const EdgeInsets.all(24),
-          child: _finished ? _summary(context) : _step(context, _node!),
+        body: ContentWidth(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: _finished ? _summary(context) : _step(context, _node!),
+          ),
         ),
       ),
     );
@@ -246,20 +253,30 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
         for (final n in _skipped)
           Text('${n.role == Role.left ? 'Left' : 'Right'} foot: not calibrated', textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
         const Spacer(),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              onPressed: () => Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => LiveViewScreen(manager: widget.manager)),
-              ),
-              icon: const Icon(Icons.threed_rotation),
-              label: const Text('Check it in Live view'),
+        SizedBox(
+          height: 56,
+          child: FilledButton.icon(
+            onPressed: widget.returnToRoutine
+                ? () => Navigator.pop(context)
+                : () => Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => PresetScreen(manager: widget.manager)),
+                    ),
+            icon: const Icon(Icons.queue_music),
+            label: Text(widget.returnToRoutine ? 'Back to the routine' : 'Choose a routine'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 52,
+          child: OutlinedButton.icon(
+            onPressed: () => Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => LiveViewScreen(manager: widget.manager)),
             ),
-          ],
+            icon: const Icon(Icons.threed_rotation),
+            label: const Text('Check in Live view'),
+          ),
         ),
       ],
     );
@@ -275,12 +292,13 @@ class _Progress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Plain status pills, not chips: nothing here is tappable.
     Widget mark(String label, bool done, bool now) => Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          child: Chip(
-            label: Text(label),
-            avatar: done ? const Icon(Icons.check, size: 18) : null,
-            backgroundColor: now ? scheme.primaryContainer : null,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: StatusPill(
+            icon: done ? Icons.check_circle : (now ? Icons.radio_button_checked : Icons.radio_button_unchecked),
+            text: label,
+            color: done ? Verdict.correct.color : (now ? scheme.primary : null),
           ),
         );
     final still = phase == CalPhase.still;

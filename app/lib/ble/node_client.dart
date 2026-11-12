@@ -57,6 +57,7 @@ class BleNodeClient extends NodeClient {
 
   Future<void> connect(BluetoothDevice device) async {
     _device = device;
+    offsetUs = null; // a reconnected node may have rebooted: its clock must be synced again
     await device.connect(timeout: const Duration(seconds: 10));
     await device.requestMtu(247);
     await device.requestConnectionPriority(connectionPriorityRequest: ConnectionPriority.high);

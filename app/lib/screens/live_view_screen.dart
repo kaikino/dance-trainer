@@ -82,12 +82,12 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
           ? const Center(child: Text('No node connected.'))
           : Column(
               children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                   child: Text(
-                    'Stand with your toes pointing forward and tap Set straight ahead. Turn your toe, '
-                    'lift it, roll onto an edge: the foot on screen should copy you. Slide or kick: the '
-                    'foot is pushed off centre the way you push it, harder pushes further, then settles back.',
+                    'Toes forward, tap Set straight ahead. Then move your foot: the one on screen should copy you.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyLarge,
                   ),
                 ),
                 Expanded(
@@ -309,7 +309,17 @@ class _FootPanel extends StatelessWidget {
               ],
             ),
             Expanded(child: CustomPaint(painter: _FootPainter(foot, theme), size: Size.infinite)),
-            Center(child: Text(caption, style: theme.textTheme.bodyLarge)),
+            // Two lines reserved so the panel does not jump as the caption changes.
+            SizedBox(
+              height: (theme.textTheme.titleMedium?.fontSize ?? 16) * 1.4 * 2,
+              child: Center(
+                child: Text(caption,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(height: 1.4)),
+              ),
+            ),
           ],
         ),
       ),

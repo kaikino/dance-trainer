@@ -35,9 +35,10 @@ class Preset {
     final raw = (j['steps'] as List).cast<Map<String, dynamic>>();
     final loop = j['loop'] == true;
     final repeats = loop ? (j['repeats'] as int? ?? 1) : 1;
-    // One loop lasts length_beats (lets a pattern end on a rest), else up to its last step.
-    final patternBeats = (j['length_beats'] as num?)?.toDouble() ??
-        raw.map((s) => (s['beat'] as num).toDouble()).reduce((a, b) => a > b ? a : b);
+    // One loop lasts length_beats (lets a pattern end on a rest), else whole
+    // 4-beat bars up to its last step.
+    final lastBeat = raw.map((s) => (s['beat'] as num).toDouble()).reduce((a, b) => a > b ? a : b);
+    final patternBeats = (j['length_beats'] as num?)?.toDouble() ?? (lastBeat / 4).ceil() * 4.0;
     final steps = <PresetStep>[];
     for (var r = 0; r < repeats; r++) {
       for (final s in raw) {
@@ -58,7 +59,16 @@ class Preset {
   /// Milliseconds after t0 (beat 1) at which `beat` happens.
   double beatToMs(double beat) => (beat - 1) * beatMs;
 
-  /// The schedule entries for one node.
-  List<(double, StepClass)> scheduleFor(Role foot) =>
-      steps.where((s) => s.foot == foot).map((s) => (s.beat, s.stepClass)).toList();
+  /// The schedule entries for one node, optionally only from [fromBeat] on
+  /// (a practice rewind restarts the nodes mid-routine).
+  List<(double, StepClass)> scheduleFor(Role foot, {double fromBeat = 1}) => steps
+      .where((s) => s.foot == foot && s.beat >= fromBeat)
+      .map((s) => (s.beat, s.stepClass))
+      .toList();
+
+  /// Bars of 4 beats from beat 1 to the last step.
+  int get bars => ((lastBeat - 1) ~/ 4) + 1;
+
+  /// First beat of the bar that [beat] falls in.
+  static double barStart(double beat) => ((beat - 1) ~/ 4) * 4 + 1.0;
 }

@@ -35,7 +35,17 @@ class SessionRecorder {
 
   late final String sessionId;
   late final Directory dir;
-  int? t0AppMs;
+
+  /// Wall-clock time of beat 1 for the first segment.
+  int? get t0AppMs => segments.isEmpty ? null : segments.first.t0AppMs;
+
+  /// One entry per start of the nodes: a practice rewind adds a segment that
+  /// restarts at [fromBeat] with its own t0.
+  final segments = <({double fromBeat, int t0AppMs})>[];
+  void addSegment(int t0AppMs, {double fromBeat = 1}) => segments.add((fromBeat: fromBeat, t0AppMs: t0AppMs));
+
+  bool _begun = false, _ended = false;
+  bool get begun => _begun;
   final events = <RecordedEvent>[];
   final _subs = <StreamSubscription<dynamic>>[];
   final _sinks = <Role, IOSink>{};
@@ -46,6 +56,7 @@ class SessionRecorder {
   int get sampleMs => mode == Mode.capture ? 10 : 20;
 
   Future<void> begin() async {
+    _begun = true;
     final now = DateTime.now();
     String two(int v) => v.toString().padLeft(2, '0');
     sessionId =
@@ -126,7 +137,10 @@ class SessionRecorder {
     events.add(RecordedEvent(role, e, label, source));
   }
 
+  /// Writes events.csv and session.json. Safe to call twice; a no-op before [begin].
   Future<void> end({String appVersion = '0.1.0'}) async {
+    if (!_begun || _ended) return;
+    _ended = true;
     for (final s in _subs) {
       await s.cancel();
     }
@@ -158,6 +172,9 @@ class SessionRecorder {
       'bpm': preset.bpm,
       'mode': mode.name,
       't0_app_ms': t0AppMs,
+      'segments': [
+        for (final g in segments) {'from_beat': g.fromBeat, 't0_app_ms': g.t0AppMs},
+      ],
       'nodes': {
         for (final n in nodes.nodes.where((n) => n.connected))
           n.roleLabel: {'offset_us': n.offsetUs, 'fw_version': n.status?.fwVersion},
