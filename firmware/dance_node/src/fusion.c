@@ -50,6 +50,19 @@ extern QueueHandle_t haptic_q;   // cue the dancer between calibration phases
 #define MOVED_SET_DEG      20.0f
 #define MOVED_CLEAR_DEG    12.0f
 
+// Gyro bias tracking outside calibration. The LSM6DS3 zero-rate offset wanders
+// by several dps between sessions (and with temperature), and the rule
+// classifier collapses past ~10 dps of leftover bias (realsim gyro_bias_dps
+// sweep). So each time the foot holds still for BIAS_STILL_MS, the mean
+// leftover rate is folded into the bias. Tilting rotations cannot pass the
+// accelerometer gate; a slow pure turn about vertical could, but that only
+// bends the heading, which is removed per sample anyway.
+#define BIAS_STILL_MS      1000
+#define BIAS_MAX_DPS       30.0f  // leftover rate still accepted as "bias" (LSM6DS3: ±10 dps per axis)
+#define BIAS_JITTER_DPS     5.0f  // per-axis distance from the run's mean so far
+#define BIAS_ACC_G          0.05f
+#define BIAS_GAIN           0.5f  // share of the measured residual applied per run
+
 typedef struct {
     float gyro_bias[3];      // dps, in the leveled frame
     float q_align[4];        // w x y z: raw sensor → leveled sensor (gravity → +z)
@@ -63,6 +76,7 @@ static fused_sample_t ring[FUSION_RING_LEN];
 static volatile uint32_t count;
 static calibration_t cal;
 static float q_total[4];         // raw sensor → foot-aligned sensor: q_align, then -yaw_fwd about z
+static float bias_f[3];          // dps, gyro bias in the foot-aligned frame (the frame g is in)
 static bool mirror_y;            // right foot: flip y so +y = outward on both feet
 static volatile bool calibrating;   // from the request until a result is in cal_phase
 static volatile bool cal_request, cal_cancel;
@@ -107,6 +121,9 @@ static void cal_compose(void)
     float h = -0.5f * cal.yaw_fwd;
     float qz[4] = {cosf(h), 0, 0, sinf(h)};
     q_mul(qz, cal.q_align, q_total);
+    // The bias is stored in the leveled frame, but the gyro is subtracted after
+    // the -yaw_fwd turn too: turn the bias the same way.
+    q_rotate(qz, cal.gyro_bias, bias_f);
 }
 
 // ---- calibration persistence ------------------------------------------------
@@ -142,6 +159,34 @@ void fusion_init(dt_role_t role)
 }
 
 // Runs on every sample, in the calibrated frame with gyro bias removed.
+static float norm3(const float v[3]);
+
+void fusion_gyro_bias(float out[3]) { memcpy(out, bias_f, sizeof bias_f); }
+
+// Runs on every sample, in the foot-aligned frame, g with the current bias removed.
+static void bias_track(const float a[3], const float g[3], uint32_t t_us)
+{
+    static float a_sum[3], g_sum[3];
+    static uint32_t run_start, n;
+    if (calibrating || !cal.valid) { n = 0; return; }
+    bool still = n > 0 && norm3(g) < BIAS_MAX_DPS;
+    for (int i = 0; i < 3 && still; i++)
+        still = fabsf(g[i] - g_sum[i] / n) < BIAS_JITTER_DPS && fabsf(a[i] - a_sum[i] / n) < BIAS_ACC_G;
+    if (!still) {
+        // Start a new run here (a sample that is turning fast cannot start one).
+        n = 0;
+        if (norm3(g) >= BIAS_MAX_DPS) return;
+        memset(a_sum, 0, sizeof a_sum);
+        memset(g_sum, 0, sizeof g_sum);
+        run_start = t_us;
+    }
+    for (int i = 0; i < 3; i++) { a_sum[i] += a[i]; g_sum[i] += g[i]; }
+    n++;
+    if (t_us - run_start < BIAS_STILL_MS * 1000u) return;
+    for (int i = 0; i < 3; i++) bias_f[i] += BIAS_GAIN * g_sum[i] / n;
+    n = 0;   // the next run is measured against the new bias
+}
+
 static void moved_check(const float a[3], const float g[3], uint32_t t_us)
 {
     static float ref[3], sum[3];
@@ -183,7 +228,8 @@ void fusion_task(void *arg)
         float a[3], g[3];
         q_rotate(q_total, a_raw, a);
         q_rotate(q_total, g_raw, g);
-        for (int i = 0; i < 3; i++) g[i] -= cal.gyro_bias[i];
+        for (int i = 0; i < 3; i++) g[i] -= bias_f[i];
+        bias_track(a, g, s.t_us);
         moved_check(a, g, s.t_us);
 
         madgwick_update_imu(&ahrs, g[0] * DEG2RAD, g[1] * DEG2RAD, g[2] * DEG2RAD, a[0], a[1], a[2], dt);

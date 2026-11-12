@@ -68,6 +68,9 @@ static void handle(char *line)
                       ble_connected() ? "connected" : "advertising", (int)fusion_is_calibrated(),
                       (int)fusion_has_forward(), (int)fusion_board_moved(),
                       (unsigned long)dt_now_us());
+        float b[3];
+        fusion_gyro_bias(b);
+        Serial.printf("gyro bias %.2f %.2f %.2f dps (foot frame, tracked while still)\n", b[0], b[1], b[2]);
     } else if (!strcmp(line, "cal")) {
         fusion_calibrate();
     } else if (!strcmp(line, "calcancel")) {

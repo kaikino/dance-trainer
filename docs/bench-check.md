@@ -14,7 +14,8 @@ auditor's `legsim.py`, which disagree; real data decides).
    0, and cross vs close is judged from roll, so a narrow or wide stance here
    shifts every cross/close call. Then do the three slides **straight forward
    from the body** (not along a turned-out toe). Wait for the double buzz.
-   `status` must say `calibrated=1 forward=1`.
+   `status` must say `calibrated=1 forward=1`. Its second line is the gyro bias the
+   node tracks while the foot is still; each axis should stay within ~10 dps.
 
 Each strike prints one line, ~0.4 s after the landing:
 

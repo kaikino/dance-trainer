@@ -32,6 +32,7 @@ void fusion_init(dt_role_t role);             // loads calibration from flash if
 void fusion_task(void *arg);                  // sample_q → ring
 bool fusion_get(uint32_t idx, fused_sample_t *out);  // idx = absolute sample count
 uint32_t fusion_count(void);                  // samples written so far
+void fusion_gyro_bias(float out[3]);          // dps, foot frame, as currently tracked
 
 // Runs in its own task; these calls return at once and fusion_cal_phase() follows
 // progress. (1) Waits for 1.5 s of real stillness → gravity alignment and gyro

@@ -93,7 +93,34 @@ def q_from_matrix(m: np.ndarray):
 
 # ---- fusion_task (fusion.c) ------------------------------------------------------
 
-def fuse(t_us: np.ndarray, acc: np.ndarray, gyr: np.ndarray, right: bool, q0, q_err=None) -> dict:
+class BiasTracker:
+    """bias_track() in fusion.c: fold the mean leftover rate of each 1 s still run into the bias."""
+    STILL_US, MAX_DPS, JITTER_DPS, ACC_G, GAIN = 1_000_000, 30.0, 5.0, 0.05, 0.5
+
+    def __init__(self):
+        self.bias = np.zeros(3)
+        self.n = 0
+
+    def update(self, a, g, t_us: int) -> None:
+        gm = float(np.linalg.norm(g))
+        still = (self.n > 0 and gm < self.MAX_DPS
+                 and bool(np.all(np.abs(g - self.g_sum / self.n) < self.JITTER_DPS))
+                 and bool(np.all(np.abs(a - self.a_sum / self.n) < self.ACC_G)))
+        if not still:
+            self.n = 0
+            if gm >= self.MAX_DPS:
+                return
+            self.a_sum, self.g_sum, self.start = np.zeros(3), np.zeros(3), t_us
+        self.a_sum = self.a_sum + a
+        self.g_sum = self.g_sum + g
+        self.n += 1
+        if t_us - self.start >= self.STILL_US:
+            self.bias = self.bias + self.GAIN * self.g_sum / self.n
+            self.n = 0
+
+
+def fuse(t_us: np.ndarray, acc: np.ndarray, gyr: np.ndarray, right: bool, q0, q_err=None,
+         track_bias: bool = True) -> dict:
     """acc (g), gyr (dps): calibrated sensor frame, residual gyro bias included.
     q_err: optional (n, 4) extra world-frame orientation error applied to the
     filter output before it is used (models orientation error the filter itself
@@ -101,13 +128,19 @@ def fuse(t_us: np.ndarray, acc: np.ndarray, gyr: np.ndarray, right: bool, q0, q_
     foot (n,3 g, foot frame, y mirrored on the right node)."""
     n = len(t_us)
     foot = np.empty((n, 3))
+    gyr_out = np.empty((n, 3))
     q = tuple(q0)
     d2r = math.pi / 180
     last = 0
+    bt = BiasTracker() if track_bias else None
     for i in range(n):
         dt = (t_us[i] - last) * 1e-6 if last else 1.0 / 100
         last = t_us[i]
-        a = acc[i]; g = gyr[i]
+        a = acc[i]
+        g = gyr[i] - bt.bias if bt else gyr[i]
+        if bt:
+            bt.update(a, g, int(t_us[i]))
+        gyr_out[i] = g
         q = madgwick_update(q, g[0] * d2r, g[1] * d2r, g[2] * d2r, a[0], a[1], a[2], dt)
         qu = q_mul(tuple(q_err[i]), q) if q_err is not None else q
         aw = q_rotate(qu, a)
@@ -120,7 +153,7 @@ def fuse(t_us: np.ndarray, acc: np.ndarray, gyr: np.ndarray, right: bool, q0, q_
         if right:
             ay_f = -ay_f
         foot[i] = (ax_f, ay_f, awz)
-    return {"t_us": t_us, "acc": acc, "gyr": gyr, "foot": foot}
+    return {"t_us": t_us, "acc": acc, "gyr": gyr_out, "foot": foot}
 
 
 # ---- strike detector (stepdet.c) -----------------------------------------------------
