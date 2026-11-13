@@ -33,8 +33,6 @@ typedef MistakeGroup = ({
   int first,
 });
 
-/// Bar numbers are 1-based; beat 1 is the first beat of bar 1.
-int barOf(double beat) => (beat - 1) ~/ 4 + 1;
 
 /// Scores a session from the nodes' step events: one result per scheduled
 /// step, where a later verdict for a step replaces an earlier one (a practice
@@ -82,7 +80,7 @@ class SessionScore {
 
   /// Rewind to [beat] (a bar start): same as [restart], counted as a retry of that bar.
   void rewind(double beat) {
-    rewindsByBar.update(barOf(beat), (n) => n + 1, ifAbsent: () => 1);
+    rewindsByBar.update(barOf(beat, preset.beatsPerBar), (n) => n + 1, ifAbsent: () => 1);
     restart(fromBeat: beat);
   }
 
@@ -225,7 +223,9 @@ enum PracticeAction {
 ///   offered "Slow down" (try again at a lower tempo, tries start over) or
 ///   "Keep going" (move past the bar; it is not rewound again).
 class PracticeCoach {
+  PracticeCoach({this.beatsPerBar = 4});
   static const maxTries = 3;
+  final int beatsPerBar;
 
   int? _bar;
   int _fails = 0;
@@ -237,7 +237,7 @@ class PracticeCoach {
 
   PracticeAction onMistake(Verdict v, double beat) {
     if (v != Verdict.wrongStep && v != Verdict.missed) return PracticeAction.carryOn;
-    final bar = barOf(beat);
+    final bar = barOf(beat, beatsPerBar);
     if (_passedOver.contains(bar)) return PracticeAction.carryOn;
     if (bar != _bar) {
       _bar = bar;

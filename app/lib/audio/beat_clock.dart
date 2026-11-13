@@ -192,10 +192,10 @@ class BeatClock extends ChangeNotifier {
   // ---- metronome synthesis ---------------------------------------------------
 
   /// A WAV file with a click on every beat from the count-in to two beats past
-  /// the last step. Beat 1 of every 4 is accented. Written once per preset/bpm.
+  /// the last step. Beat 1 of every bar is accented. Written once per preset/bpm.
   Future<File> _metronomeFile() async {
     final dir = await getTemporaryDirectory();
-    final f = File('${dir.path}/metronome_${preset.id}_${(preset.bpm * 100).round()}_${preset.countInBeats}.wav');
+    final f = File('${dir.path}/metronome_${preset.id}_${(preset.bpm * 100).round()}_${preset.countInBeats}_${preset.beatsPerBar}.wav');
     if (await f.exists()) return f;
 
     const rate = 22050;
@@ -204,7 +204,7 @@ class BeatClock extends ChangeNotifier {
     final pcm = Int16List(nSamples);
     for (var b = 0; b < totalBeats.ceil(); b++) {
       final isCountIn = b < preset.countInBeats;
-      final beatInBar = (b - preset.countInBeats) % 4;
+      final beatInBar = (b - preset.countInBeats) % preset.beatsPerBar;
       final accent = !isCountIn && beatInBar == 0;
       final freq = isCountIn ? 800.0 : (accent ? 1500.0 : 1000.0);
       final amp = isCountIn ? 0.5 : (accent ? 0.9 : 0.6);

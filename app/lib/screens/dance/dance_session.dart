@@ -65,7 +65,7 @@ class DanceSession extends ChangeNotifier {
   final SessionRecorder recorder;
   final SessionScore score;
   final StepChartController chart;
-  final _coach = PracticeCoach();
+  late final _coach = PracticeCoach(beatsPerBar: _preset.beatsPerBar);
 
   Preset _preset;
   late BeatClock _clock;
@@ -276,7 +276,7 @@ class DanceSession extends ChangeNotifier {
         unawaited(_practiceRewind(n.role, e, step));
       case PracticeAction.offerChoice:
         _run = null;
-        hold = ChoiceHold(Preset.barStart(step.beat));
+        hold = ChoiceHold(_preset.barStart(step.beat));
         _changed();
         unawaited(_haltPlayback());
     }
@@ -299,7 +299,7 @@ class DanceSession extends ChangeNotifier {
   }
 
   Future<void> _practiceRewind(Role foot, StepEvent e, PresetStep step) async {
-    final barStart = Preset.barStart(step.beat);
+    final barStart = _preset.barStart(step.beat);
     final name = footName(foot);
     final (title, detail) = switch (e.verdict) {
       Verdict.wrongStep => (
@@ -373,7 +373,7 @@ class DanceSession extends ChangeNotifier {
     if (!starting && (h is PausedHold || h is ChoiceHold || h is FailedHold)) return;
     _run = null;
     _pendingPause = null;
-    final from = h?.fromBeat ?? max(score.fromBeat, Preset.barStart(max(1.0, _clock.nowBeat)));
+    final from = h?.fromBeat ?? max(score.fromBeat, _preset.barStart(max(1.0, _clock.nowBeat)));
     hold = PausedHold(reason, from);
     _changed();
     unawaited(_haltPlayback());
@@ -412,7 +412,7 @@ class DanceSession extends ChangeNotifier {
   Future<void> keepGoing(double barStart) async {
     _coach.keepGoing();
     _skippedBar = true;
-    final next = barStart + 4;
+    final next = barStart + _preset.beatsPerBar;
     if (next > _preset.lastBeat) return end(complete: true);
     await resumeFrom(next);
   }
@@ -443,7 +443,7 @@ class DanceSession extends ChangeNotifier {
       final t0 = _t0AppMs;
       // While held, the next resume starts it with the others.
       if (hold == null && t0 != null && !ending) {
-        final from = max(score.fromBeat, Preset.barStart(max(1.0, _clock.nowBeat)) + 4);
+        final from = max(score.fromBeat, _preset.barStart(max(1.0, _clock.nowBeat)) + _preset.beatsPerBar);
         await n.pushSchedule(_preset.id, _preset.bpm, _preset.scheduleFor(n.role, fromBeat: from));
         await n.start(kind.nodeMode, t0);
       }

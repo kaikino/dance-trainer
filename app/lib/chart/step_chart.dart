@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../ble/protocol.dart';
 import '../models/preset.dart';
-import '../models/session_score.dart' show barOf;
 import '../ui/style.dart';
 
 /// What the step chart shows. The dance screen moves [nowBeat] once a frame
@@ -68,7 +67,7 @@ class StepChartController extends ChangeNotifier {
       final i = order[k];
       final s = steps[i];
       if (s.stepClass == StepClass.none || verdicts[i] != null) continue;
-      next = 'Next: ${footName(s.foot).toLowerCase()} foot ${stepLabel(s.stepClass, s.foot)}, bar ${barOf(s.beat)}';
+      next = 'Next: ${footName(s.foot).toLowerCase()} foot ${stepLabel(s.stepClass, s.foot)}, bar ${barOf(s.beat, preset.beatsPerBar)}';
       break;
     }
     final last = _lastVerdict;
@@ -203,7 +202,7 @@ class _StepChartPainter extends CustomPainter {
     for (var b = (nowBeat - behind).ceil(); b <= nowBeat + ahead; b++) {
       final y = nowY - (b - nowBeat) * pxPerBeat;
       if (y < headerH) continue;
-      final barLine = (b - 1) % 4 == 0;
+      final barLine = (b - 1) % c.preset.beatsPerBar == 0;
       final p = Paint()
         ..color = scheme.outlineVariant.withValues(alpha: barLine ? 0.9 : 0.45)
         ..strokeWidth = barLine ? 2 : 1;

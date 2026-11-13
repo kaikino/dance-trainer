@@ -373,9 +373,9 @@ class ScoreRing extends StatelessWidget {
 /// A routine's first bars as two rows of small step icons (L over R), one
 /// column per beat, so routines can be told apart at a glance.
 class StepPatternPreview extends StatelessWidget {
-  const StepPatternPreview({super.key, required this.preset, this.beats = 8, this.color, this.footLabels = true});
+  const StepPatternPreview({super.key, required this.preset, this.bars = 2, this.color, this.footLabels = true});
   final Preset preset;
-  final int beats;
+  final int bars;
   final Color? color;
 
   /// An "L" and "R" in front of the rows.
@@ -410,7 +410,7 @@ class StepPatternPreview extends StatelessWidget {
         .label
         .copyWith(fontWeight: AppType.heavy, color: scheme.onSurfaceVariant, height: 1);
     return Semantics(
-      label: 'First ${beats ~/ 4} bars, left foot over right foot',
+      label: 'First $bars bars, left foot over right foot',
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -421,7 +421,7 @@ class StepPatternPreview extends StatelessWidget {
                   width: 18,
                   child: Text(foot == Role.left ? 'L' : 'R', style: labelStyle, textAlign: TextAlign.center),
                 ),
-              for (var b = 1; b <= beats; b++) cell(foot, b),
+              for (var b = 1; b <= bars * preset.beatsPerBar; b++) cell(foot, b),
             ]),
         ],
       ),

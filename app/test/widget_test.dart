@@ -75,8 +75,23 @@ void main() {
 
     test('schedule from a beat on, for a rewind', () {
       expect(p.scheduleFor(Role.left, fromBeat: 2), [(5.0, StepClass.forward)]);
-      expect(Preset.barStart(7.0), 5.0);
-      expect(Preset.barStart(4.5), 1.0);
+      expect(p.barStart(7.0), 5.0);
+      expect(p.barStart(4.5), 1.0);
+    });
+
+    test('3/4: bars of 3 beats, loops of whole bars', () {
+      final w = Preset.fromJson({
+        'id': 9, 'name': 'w', 'bpm': 90, 'beats_per_bar': 3, 'loop': true, 'repeats': 2,
+        'steps': [
+          {'beat': 1.0, 'foot': 'L', 'class': 'forward'},
+          {'beat': 2.0, 'foot': 'R', 'class': 'forward_out'},
+        ],
+      });
+      expect(w.beatsPerBar, 3);
+      expect(w.steps[2].beat, 4.0);            // the pattern repeats after one 3-beat bar
+      expect(w.barStart(6.0), 4.0);
+      expect(barOf(7.0, 3), 3);
+      expect(w.withTempo(0.5).beatsPerBar, 3);
     });
 
     test('per-foot schedule', () {

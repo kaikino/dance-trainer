@@ -307,7 +307,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
       ];
     }
     final top = mistakes.first;
-    final drillFrom = Preset.barStart(preset.steps[top.first].beat);
+    final drillFrom = preset.barStart(preset.steps[top.first].beat);
     return [
       const SectionHeader('To work on'),
       // A real button: Practice this routine from the bar the worst step first went wrong in.
@@ -330,7 +330,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
                   children: [
                     Text('Drill: ${footName(top.foot).toLowerCase()} foot, ${stepLabel(top.step, top.foot)}',
                         maxLines: 1, overflow: TextOverflow.ellipsis),
-                    Text('Practice from bar ${barOf(drillFrom)}',
+                    Text('Practice from bar ${barOf(drillFrom, preset.beatsPerBar)}',
                         style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSecondaryContainer)),
                   ],
                 ),

@@ -23,6 +23,7 @@ step chart and to build the per-node schedule (see `docs/ble-protocol.md`).
 | --- | --- |
 | `id` | u16, unique across presets; goes on the wire |
 | `bpm` | default tempo; the app may scale it (Practice mode) |
+| `beats_per_bar` | optional time signature: 3 for 3/4 (a waltz box step), default 4; sets bar lines, the metronome accent, bar numbers and practice rewinds |
 | `count_in_beats` | beats of click before beat 1 |
 | `loop` + `repeats` | the step list repeats this many times; beat numbers continue |
 | `length_beats` | optional: beats in one loop, so a pattern can end on a rest; default: the last step's beat |

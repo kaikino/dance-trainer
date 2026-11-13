@@ -2,9 +2,10 @@ part of '../dance_screen.dart';
 
 /// Bar counter and four beat dots, at a fixed height so the chart below never jumps.
 class _StatusHeader extends StatelessWidget {
-  const _StatusHeader({required this.text, required this.beatInBar});
+  const _StatusHeader({required this.text, required this.beatInBar, this.beatsPerBar = 4});
   final String text;
   final int? beatInBar;
+  final int beatsPerBar;
 
   @override
   Widget build(BuildContext context) {
@@ -22,11 +23,11 @@ class _StatusHeader extends StatelessWidget {
             ),
           ),
           Semantics(
-            label: beatInBar == null ? null : 'beat ${beatInBar! + 1} of 4',
+            label: beatInBar == null ? null : 'beat ${beatInBar! + 1} of $beatsPerBar',
             excludeSemantics: true,
             child: Row(
               children: [
-                for (var i = 0; i < 4; i++)
+                for (var i = 0; i < beatsPerBar; i++)
                   Container(
                     width: 22,
                     height: 22,

@@ -231,12 +231,13 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
           SessionPhase.preparing => 'Getting ready…',
           SessionPhase.error => 'Could not start',
           // The card over the chart says Paused; here, where it picks up.
-          _ when hold is PausedHold || hold is FailedHold => 'Bar ${barOf(hold!.fromBeat)} of ${s.preset.bars}',
+          _ when hold is PausedHold || hold is FailedHold => 'Bar ${barOf(hold!.fromBeat, s.preset.beatsPerBar)} of ${s.preset.bars}',
           _ when s.clock.nowBeat < s.score.fromBeat => 'Get ready',
-          _ => 'Bar ${barOf(s.clock.nowBeat).clamp(1, s.preset.bars)} of ${s.preset.bars}',
+          _ => 'Bar ${barOf(s.clock.nowBeat, s.preset.beatsPerBar).clamp(1, s.preset.bars)} of ${s.preset.bars}',
         },
         // Dots run through the count-in too (a restart is always at a bar start).
-        beatInBar: s.phase == SessionPhase.running && hold == null ? (beat - 1) % 4 : null,
+        beatInBar: s.phase == SessionPhase.running && hold == null ? (beat - 1) % s.preset.beatsPerBar : null,
+        beatsPerBar: s.preset.beatsPerBar,
       ),
     );
     final Widget side = s.demo
@@ -364,7 +365,7 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
   /// under the chart) rather than as wide as its text.
   Widget _holdCard(ThemeData theme, {bool fill = false}) {
     final hold = s.hold!;
-    final bar = barOf(hold.fromBeat);
+    final bar = barOf(hold.fromBeat, s.preset.beatsPerBar);
     return switch (hold) {
       MistakeHold() => _HoldCard(
           fill: fill,

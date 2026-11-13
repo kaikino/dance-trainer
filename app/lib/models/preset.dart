@@ -21,8 +21,10 @@ class Preset {
   final List<PresetStep> steps; // expanded over `repeats`
   final String? music; // file name under assets/music/, or null for a metronome
   final double tempo; // 1.0 = as written; the music plays at this speed
+  final int beatsPerBar; // time signature: 4 (4/4), 3 (3/4, a waltz box step)
 
-  const Preset(this.id, this.name, this.bpm, this.countInBeats, this.steps, {this.music, this.tempo = 1.0});
+  const Preset(this.id, this.name, this.bpm, this.countInBeats, this.steps,
+      {this.music, this.tempo = 1.0, this.beatsPerBar = 4});
 
   /// Same routine at a scaled tempo (Practice mode slow-down). The bpm is
   /// rounded to 0.1, the resolution the node keeps (bpm_x10 on the wire), and
@@ -31,7 +33,8 @@ class Preset {
   Preset withTempo(double factor) {
     final baseBpm = bpm / tempo;
     final newBpm = (bpm * factor * 10).round() / 10;
-    return Preset(id, name, newBpm, countInBeats, steps, music: music, tempo: newBpm / baseBpm);
+    return Preset(id, name, newBpm, countInBeats, steps,
+        music: music, tempo: newBpm / baseBpm, beatsPerBar: beatsPerBar);
   }
 
   static Future<Preset> loadAsset(String path) async =>
@@ -42,9 +45,10 @@ class Preset {
     final loop = j['loop'] == true;
     final repeats = loop ? (j['repeats'] as int? ?? 1) : 1;
     // One loop lasts length_beats (lets a pattern end on a rest), else whole
-    // 4-beat bars up to its last step.
+    // bars up to its last step.
+    final bpb = j['beats_per_bar'] as int? ?? 4;
     final lastBeat = raw.map((s) => (s['beat'] as num).toDouble()).reduce((a, b) => a > b ? a : b);
-    final patternBeats = (j['length_beats'] as num?)?.toDouble() ?? (lastBeat / 4).ceil() * 4.0;
+    final patternBeats = (j['length_beats'] as num?)?.toDouble() ?? (lastBeat / bpb).ceil() * bpb.toDouble();
     final steps = <PresetStep>[];
     for (var r = 0; r < repeats; r++) {
       for (final s in raw) {
@@ -57,7 +61,7 @@ class Preset {
     }
     return Preset(
         j['id'] as int, j['name'] as String, (j['bpm'] as num).toDouble(), j['count_in_beats'] as int? ?? 4, steps,
-        music: j['music'] as String?);
+        music: j['music'] as String?, beatsPerBar: bpb);
   }
 
   double get beatMs => 60000 / bpm;
@@ -117,9 +121,12 @@ class Preset {
     return best;
   }
 
-  /// Bars of 4 beats from beat 1 to the last step.
-  int get bars => ((lastBeat - 1) ~/ 4) + 1;
+  /// Bars from beat 1 to the last step.
+  int get bars => barOf(lastBeat, beatsPerBar);
 
   /// First beat of the bar that [beat] falls in.
-  static double barStart(double beat) => ((beat - 1) ~/ 4) * 4 + 1.0;
+  double barStart(double beat) => ((beat - 1) ~/ beatsPerBar) * beatsPerBar + 1.0;
 }
+
+/// Bar numbers are 1-based; beat 1 is the first beat of bar 1.
+int barOf(double beat, int beatsPerBar) => (beat - 1) ~/ beatsPerBar + 1;

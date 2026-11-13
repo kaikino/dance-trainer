@@ -243,7 +243,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                     label: const Text('Live view'),
                   ),
                   TextButton.icon(
-                    onPressed: () => n.buzzTest(Haptic.double),
+                    onPressed: () => n.buzzTest(Haptic.long),   // 400 ms: a short pulse barely spins the motor up
                     icon: const Icon(Icons.vibration_rounded, size: 18),
                     label: const Text('Buzz'),
                   ),

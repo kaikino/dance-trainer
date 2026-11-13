@@ -181,7 +181,7 @@ def jobs_auditor(n, seed):
 # vocabulary is what the node is told; side_in is in the grapevine set because the
 # simulator needs it to bring the feet back together.
 DANCES = {
-    "box": ["forward_out", "forward_in", "back_out", "back_in", "in_place"],
+    "box": ["forward", "forward_out", "side_in", "back", "back_out", "in_place"],
     "grapevine": ["side_out", "cross_behind", "side_in", "in_place"],
     "side": ["side_out", "side_in", "in_place"],
     "basic": ["forward", "back", "in_place"],
