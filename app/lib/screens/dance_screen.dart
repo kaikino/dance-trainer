@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
+import '../chart/floor_map.dart';
 import '../chart/step_chart.dart';
 import '../models/preset.dart';
 import '../models/session_kind.dart';
@@ -51,6 +52,7 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
   late final DanceSession s;
   late final Ticker _ticker;
   final _beatIndex = ValueNotifier<int>(-99); // whole beats, so the header rebuilds once a beat
+  bool _floor = true; // the floor map beside (or above) the chart
 
   @override
   void initState() {
@@ -247,6 +249,9 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
             : ValueListenableBuilder(
                 valueListenable: _beatIndex, builder: (context, beat, child) => _CapturePanel(s.recorder));
 
+    // Where the feet go, from the routine (not the sensors): a reference.
+    final floor = FloorMap(preset: s.preset, beat: () => s.chart.nowBeat, repaint: s.chart, caption: false);
+
     final body = s.phase == SessionPhase.error
         ? _ErrorPanel(message: s.error ?? '', onBack: s.end)
         : LayoutBuilder(
@@ -259,7 +264,19 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
                     Expanded(
                         child: Padding(
                             padding: const EdgeInsets.fromLTRB(Space.lg, Space.xs, Space.sm, Space.lg),
-                            child: chart(wide: true))),
+                            // Beside the chart only where both keep room to read.
+                            child: LayoutBuilder(
+                              builder: (context, cc) => _floor && cc.maxWidth >= 720
+                                  ? Row(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        Expanded(flex: 5, child: chart(wide: true)),
+                                        const SizedBox(width: Space.md),
+                                        Expanded(flex: 4, child: floor),
+                                      ],
+                                    )
+                                  : chart(wide: true),
+                            ))),
                     SizedBox(
                       width: (c.maxWidth * 0.3).clamp(280.0, 420.0),
                       child: Padding(
@@ -296,6 +313,11 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Padding(padding: const EdgeInsets.symmetric(horizontal: Space.lg), child: status),
+                  if (_floor)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(Space.md, 0, Space.md, Space.sm),
+                      child: SizedBox(height: c.maxHeight * 0.3, child: floor),
+                    ),
                   Expanded(
                       child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: Space.md), child: chart(wide: false))),
@@ -328,6 +350,12 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
         appBar: AppBar(
           title: Text(s.preset.name),
           actions: [
+            IconButton(
+              onPressed: () => setState(() => _floor = !_floor),
+              isSelected: _floor,
+              icon: const Icon(Icons.grid_view_rounded),
+              tooltip: _floor ? 'Hide the floor map' : 'Show the floor map',
+            ),
             // The legend while there is time to read it: watching, or paused.
             if (s.demo || paused)
               IconButton(

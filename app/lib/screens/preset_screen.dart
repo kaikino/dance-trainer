@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../ble/node_client.dart';
+import '../chart/floor_map.dart';
 import '../models/preset.dart';
 import '../models/session_kind.dart';
 import '../store/history.dart';
@@ -176,6 +177,19 @@ class _PresetScreenState extends State<PresetScreen> {
                         ..._warnings(context),
                         const SectionHeader('Routine'),
                         _routines(presets, wide),
+                        if (_selected != null) ...[
+                          const SectionHeader('On the floor'),
+                          SizedBox(
+                            height: wide ? 320 : 260,
+                            child: FloorMapPreview(preset: _selected!, tempo: _tempo),
+                          ),
+                          const SizedBox(height: Space.xs),
+                          Text('Where each foot lands, seen from behind you. The numbered outlines are the next steps.',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                        ],
                         if (wide)
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
