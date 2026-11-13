@@ -8,3 +8,5 @@ presets/    choreography files
 docs/
 hardware/
 ```
+
+Setting up, flashing the nodes, installing and updating the app: **DEVELOPING.md**.

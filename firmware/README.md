@@ -8,8 +8,10 @@ Arduino framework on the Adafruit nRF52 core (Seeed's board package), built with
 
 ```
 make setup                       # once: arduino-cli core for Seeeduino:nrf52
-make                             # left node, CNN classifier → build/L-cnn/
+make                             # left node, rule classifier → build/L-rules/
 make ROLE=R                      # right node
+make ROLE=X                      # spare board: Bluetooth off, the app never connects to it
+make CLASSIFIER=cnn              # the CNN instead (trained on simulated data only)
 make flash PORT=/dev/cu.usbmodem1101 ROLE=R
 make monitor PORT=/dev/cu.usbmodem1101
 ```
@@ -19,7 +21,9 @@ not enumerating, double-tap its reset button: a `XIAO-SENSE` drive appears and
 `build/<variant>/dance_node.ino.uf2` can be dropped on it instead.
 
 The compile-time role is only a default. Over the serial console, `role L` or
-`role R` stores the role in flash and reboots, so one build serves both nodes.
+`role R` stores the role in flash and reboots, so one build serves both nodes;
+`role X` makes a board a spare (no Bluetooth). A `ROLE=X` build is always a
+spare, whatever is stored.
 
 ## Serial console (115200)
 
@@ -30,7 +34,8 @@ The compile-time role is only a default. Over the serial console, `role L` or
 | `calcancel` | stop a calibration and restore the previous one |
 | `buzz [1\|2\|3]` | short / double / long motor pattern |
 | `selftest` | runs the CNN on 20 embedded windows, prints `idx,class,conf,us` |
-| `role L\|R` | store role and reboot |
+| `rulesdbg on\|off` | print the rule's measurements for every step (`docs/bench-check.md`) |
+| `role L\|R\|X` | store role (X = spare, Bluetooth off) and reboot |
 
 `selftest` output must match `ml/export.py --selftest` on class and within ±2 on conf.
 
