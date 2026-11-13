@@ -6,6 +6,7 @@ import '../chart/floor_map.dart';
 import '../models/preset.dart';
 import '../models/session_kind.dart';
 import '../store/training_session.dart';
+import 'recordings_screen.dart';
 import '../store/history.dart';
 import '../store/settings.dart';
 import '../ui/step_legend.dart';
@@ -278,7 +279,20 @@ class _PresetScreenState extends State<PresetScreen> {
                 ? ''
                 : 'Every recorded run is saved to Documents/DanceTrainer/${t.id}. '
                     'Discard a bad run on its summary.'),
-            trailing: OutlinedButton(onPressed: _startTraining, child: const Text('New session')),
+            trailing: Wrap(
+              spacing: Space.sm,
+              children: [
+                TextButton.icon(
+                  onPressed: () async {
+                    await Navigator.push(context, MaterialPageRoute(builder: (_) => const RecordingsScreen()));
+                    if (mounted) setState(() {});
+                  },
+                  icon: const Icon(Icons.folder_open_rounded),
+                  label: const Text('Recordings'),
+                ),
+                OutlinedButton(onPressed: _startTraining, child: const Text('New session')),
+              ],
+            ),
           ),
         ),
       ),

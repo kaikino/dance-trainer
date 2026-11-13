@@ -11,6 +11,7 @@ import 'calibrate_screen.dart';
 import 'live_view_screen.dart';
 import 'onboarding_screen.dart';
 import 'preset_screen.dart';
+import 'recordings_screen.dart';
 
 /// Find both nodes and calibrate them. Entry screen. (Clocks are synced at the start of each session.)
 class ConnectScreen extends StatefulWidget {
@@ -117,6 +118,11 @@ class _ConnectScreenState extends State<ConnectScreen> {
       appBar: AppBar(
         title: const Text('Dance Trainer'),
         actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RecordingsScreen())),
+            icon: const Icon(Icons.folder_open_rounded),
+            label: const Text('Recordings'),
+          ),
           TextButton.icon(
             onPressed: _openOnboarding,
             icon: const Icon(Icons.help_outline_rounded),

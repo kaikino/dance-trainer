@@ -11,6 +11,7 @@ import '../store/training_session.dart';
 import '../ui/style.dart';
 import 'dance_screen.dart';
 import 'preset_screen.dart';
+import 'recording_screen.dart';
 
 /// End-of-session numbers: accuracy as a ring (first-try accuracy in
 /// Practice), timing, mistakes by type and by foot and step, a drill button
@@ -134,6 +135,10 @@ class _SummaryScreenState extends State<SummaryScreen> {
     return i < 0 ? p : p.substring(i + 1);
   }
 
+  /// The run's raw data as graphs (the saved copy if there is one).
+  void _viewData() => Navigator.push(
+      context, MaterialPageRoute(builder: (_) => RecordingScreen(dir: recorder.savedTo ?? recorder.dir, canDelete: false)));
+
   Future<void> _discard() async {
     final yes = await showDialog<bool>(
       context: context,
@@ -168,6 +173,11 @@ class _SummaryScreenState extends State<SummaryScreen> {
       appBar: AppBar(
         title: const Text('Session summary'),
         actions: [
+          IconButton(
+            onPressed: _discarded ? null : _viewData,
+            icon: const Icon(Icons.insights_rounded),
+            tooltip: 'View the recorded data',
+          ),
           // Sharing the files (email, Drive, …) is still here, out of the way.
           IconButton(onPressed: _export, icon: const Icon(Icons.ios_share_rounded), tooltip: 'Share the files'),
         ],
@@ -454,6 +464,12 @@ class _SummaryScreenState extends State<SummaryScreen> {
                 const SizedBox(height: Space.xs),
                 Text('Labels were assigned from the schedule; run ml/label.py on the folder to check them.',
                     style: theme.textTheme.bodyLarge),
+                const SizedBox(height: Space.md),
+                FilledButton.tonalIcon(
+                  onPressed: _discarded ? null : _viewData,
+                  icon: const Icon(Icons.insights_rounded),
+                  label: const Text('View data'),
+                ),
               ],
             ),
           ),
