@@ -34,11 +34,13 @@ class FloorPlan {
   final moves = <FloorMove>[];
   final _byFoot = {Role.left: <FloorMove>[], Role.right: <FloorMove>[]};
 
-  /// Centre-to-centre distance of the feet side by side, a step's length, a side step.
-  static const gap = 0.26, stride = 0.36, side = 0.32;
+  /// Centre-to-centre distance of the feet side by side (almost together), a
+  /// step's length, a side step.
+  static const gap = 0.18, stride = 0.36, side = 0.40;
 
-  /// How far a cross lands past the other foot, and in front of or behind it.
-  static const crossPast = 0.10, crossDepth = 0.20;
+  /// How far a cross lands past the other foot, and in front of or behind it:
+  /// straight behind it, so the close that follows slides in sideways.
+  static const crossPast = 0.0, crossDepth = 0.20;
 
   static Role _other(Role f) => f == Role.left ? Role.right : Role.left;
 
@@ -80,6 +82,11 @@ class FloorPlan {
     if (t >= 1) return FootPose(m.to, 0, null, m);
     final e = _ease(t);
     var p = Offset.lerp(m.from, m.to, e)!;
+    if (m.cls == StepClass.sideIn) {
+      // A close is a sideways move: any forward or back part (out of a cross)
+      // is done early, then the foot slides in beside the other.
+      p = Offset(p.dx, m.from.dy + (m.to.dy - m.from.dy) * _ease(min(1.0, t / 0.45)));
+    }
     var lift = sin(pi * t);
     if (m.cls == StepClass.kick) {
       p = p.translate(0, 0.30 * sin(pi * t));

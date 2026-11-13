@@ -452,46 +452,12 @@ class _DemoPanel extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final now = session.callout;
-    final next = session.upcoming;
+    // The chart and the floor map show the steps; the names are left to a
+    // screen reader, so the panel does not repeat them.
     String say(List<PresetStep> steps) =>
         steps.map((s) => '${footName(s.foot)}: ${stepLabel(s.stepClass, s.foot)}').join('  ·  ');
-    Widget icons(List<PresetStep> steps, double size, Color fg, Color bg) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final s in steps)
-              if (stepIcon(s.stepClass, s.foot) case final icon?)
-                Container(
-                  margin: const EdgeInsets.only(right: Space.sm),
-                  width: size,
-                  height: size,
-                  decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-                  child: Icon(icon, color: fg, size: size * 0.62),
-                ),
-          ],
-        );
     return LayoutBuilder(builder: (context, c) {
       final strip = c.maxWidth / max(1.0, c.maxHeight) > 3;
-      final current = now.isEmpty
-          ? Text('Watch the steps come down to the line.',
-              style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant))
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                icons(now, strip ? 40 : 64, scheme.onPrimary, scheme.primary),
-                Flexible(
-                  child: Text(say(now),
-                      maxLines: 2,
-                      style:
-                          (strip ? theme.textTheme.heading : theme.textTheme.display).copyWith(color: scheme.primary)),
-                ),
-              ],
-            );
-      final upNext = next.isEmpty
-          ? null
-          : Text('Next  ${say(next)}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant));
       return Semantics(
         liveRegion: true,
         label: now.isEmpty ? null : say(now),
@@ -502,14 +468,12 @@ class _DemoPanel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: strip ? MainAxisAlignment.center : MainAxisAlignment.start,
             children: [
+              StatusPill(icon: Icons.visibility_rounded, text: 'Watch first: not judged', color: scheme.primary),
               if (!strip) ...[
-                StatusPill(icon: Icons.visibility_rounded, text: 'Watch first: not judged', color: scheme.primary),
                 const SizedBox(height: Space.lg),
+                Text('Follow the steps down to the line, and the feet on the floor map.',
+                    style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant)),
               ],
-              if (!strip) const Spacer(),
-              current,
-              if (upNext != null) ...[SizedBox(height: strip ? 0 : Space.lg), upNext],
-              if (!strip) const Spacer(flex: 2),
             ],
           ),
         ),

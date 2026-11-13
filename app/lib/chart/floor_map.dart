@@ -388,12 +388,13 @@ class _FloorPainter extends CustomPainter {
     }
     // Crosses swing round the standing foot: in front of it or behind it.
     final d = to - from;
-    final bulge = switch (m.cls) {
-      StepClass.cross => const Offset(0, 0.16),
-      StepClass.crossBehind => const Offset(0, -0.16),
-      _ => Offset(-d.dy, d.dx) / max(d.distance, 1e-6) * 0.03,
+    final c = switch (m.cls) {
+      StepClass.cross => (from + to) / 2 + const Offset(0, 0.16),
+      StepClass.crossBehind => (from + to) / 2 + const Offset(0, -0.16),
+      // As the foot moves: level first, then the slide in.
+      StepClass.sideIn => Offset(from.dx + d.dx * 0.25, to.dy),
+      _ => (from + to) / 2 + Offset(-d.dy, d.dx) / max(d.distance, 1e-6) * 0.03,
     };
-    final c = (from + to) / 2 + bulge;
     final pts = <Offset>[];
     // From the edge of the standing foot to the edge of the outline.
     final len = d.distance;
