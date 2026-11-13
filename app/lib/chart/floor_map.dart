@@ -10,7 +10,7 @@ import '../ui/style.dart';
 import 'floor_plan.dart';
 
 /// Foot colours on the floor map: one per foot, on the dark stage.
-const floorLeft = Color(0xFF38BDF8), floorRight = Color(0xFFF472B6);
+const floorLeft = Color(0xFFF472B6), floorRight = Color(0xFF38BDF8); // left pink, right blue
 Color floorColor(Role f) => f == Role.left ? floorLeft : floorRight;
 
 /// Where the feet go: a dance floor seen from behind and above the dancer,

@@ -471,7 +471,8 @@ class _DemoPanel extends StatelessWidget {
               StatusPill(icon: Icons.visibility_rounded, text: 'Watch first: not judged', color: scheme.primary),
               if (!strip) ...[
                 const SizedBox(height: Space.lg),
-                Text('Follow the steps down to the line, and the feet on the floor map.',
+                Text('Lift as a step crosses the dashed line; land as it reaches the solid line. '
+                    'The beat is the landing, as on the floor map.',
                     style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant)),
               ],
             ],

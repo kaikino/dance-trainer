@@ -43,6 +43,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
   _Feet _feet = _Feet.both;
   final _plots = {_Plot.acc, _Plot.gyro, _Plot.tilt};
   final _view = ValueNotifier<(double, double)>((0, 10));
+
+  /// Left above right instead of side by side; remembered while the app runs.
+  static bool _stackedPref = false;
+  bool get _stacked => _stackedPref;
   final _cursor = ValueNotifier<double?>(null);
 
   @override
@@ -151,6 +155,24 @@ class _RecordingScreenState extends State<RecordingScreen> {
                 showSelectedIcon: false,
                 onSelectionChanged: (s) => setState(() => _feet = s.first),
               ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.view_column_rounded,
+                      size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  Switch(
+                    value: _stacked,
+                    onChanged: (v) => setState(() => _stackedPref = v),
+                  ),
+                  Icon(Icons.view_agenda_rounded,
+                      size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  const SizedBox(width: Space.xs),
+                  GestureDetector(
+                    onTap: () => setState(() => _stackedPref = !_stackedPref),
+                    child: Text('Left above right', style: Theme.of(context).textTheme.labelLarge),
+                  ),
+                ],
+              ),
               const SizedBox(width: Space.sm),
               for (final p in _Plot.values)
                 FilterChip(
@@ -175,12 +197,15 @@ class _RecordingScreenState extends State<RecordingScreen> {
           Expanded(
             child: feet.isEmpty
                 ? Center(child: Text('No sensor data in this run.', style: theme.textTheme.titleMedium))
-                : Row(
+                : Flex(
+                    // Left beside right (each foot a column of charts), or left
+                    // above right (each foot a row of charts).
+                    direction: _stacked ? Axis.vertical : Axis.horizontal,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       for (var i = 0; i < feet.length; i++) ...[
-                        if (i > 0) const SizedBox(width: Space.md),
-                        Expanded(child: _column(context, r, feet[i], plots)),
+                        if (i > 0) const SizedBox(width: Space.md, height: Space.sm),
+                        Expanded(child: _column(context, r, feet[i], plots, across: _stacked)),
                       ],
                     ],
                   ),
@@ -232,8 +257,29 @@ class _RecordingScreenState extends State<RecordingScreen> {
     );
   }
 
-  Widget _column(BuildContext context, Recording r, Role f, List<_Plot> plots) {
+  /// One foot's charts: down a column (side by side layout) or along a row
+  /// ([across]: left above right). Each chart pans and zooms the shared view.
+  Widget _column(BuildContext context, Recording r, Role f, List<_Plot> plots, {bool across = false}) {
     final s = r.feet[f]!;
+    Widget chart(_Plot p) => LayoutBuilder(
+          builder: (context, c) => _Gestures(
+            width: c.maxWidth - _ChartPainter.left - _ChartPainter.right,
+            view: _view,
+            cursor: _cursor,
+            clamp: _clampView,
+            child: _Chart(
+              series: s,
+              plot: p,
+              foot: f,
+              capture: r.capture,
+              strikes: [for (final m in r.strikes) if (m.foot == f) m],
+              beats: r.beats,
+              view: _view,
+              cursor: _cursor,
+              showTime: across || p == plots.last,
+            ),
+          ),
+        );
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -246,35 +292,24 @@ class _RecordingScreenState extends State<RecordingScreen> {
         ]),
         const SizedBox(height: Space.xs),
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, c) => _Gestures(
-              width: c.maxWidth - _ChartPainter.left - _ChartPainter.right,
-              view: _view,
-              cursor: _cursor,
-              clamp: _clampView,
-              child: Column(
-                children: [
-                  for (final p in plots)
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: Space.xs),
-                        child: _Chart(
-                          series: s,
-                          plot: p,
-                          foot: f,
-                          capture: r.capture,
-                          strikes: [for (final m in r.strikes) if (m.foot == f) m],
-                          beats: r.beats,
-                          view: _view,
-                          cursor: _cursor,
-                          showTime: p == plots.last,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
+          child: across
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < plots.length; i++) ...[
+                      if (i > 0) const SizedBox(width: Space.xs),
+                      Expanded(child: chart(plots[i])),
+                    ],
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final p in plots)
+                      Expanded(
+                          child: Padding(padding: const EdgeInsets.only(bottom: Space.xs), child: chart(p))),
+                  ],
+                ),
         ),
       ],
     );

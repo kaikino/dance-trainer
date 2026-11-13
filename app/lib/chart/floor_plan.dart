@@ -17,10 +17,11 @@ class FloorPlan {
       final s = preset.steps[i];
       final from = pos[s.foot]!;
       final to = landing(s.stepClass, s.foot, from, pos[_other(s.foot)]!);
-      // The swing ends on the beat; it starts up to 0.6 beat before, never
-      // before the same foot's previous landing.
+      // The swing ends on the beat (the landing is the beat); it starts half a
+      // beat before, as the chart's lift line says, never before the same
+      // foot's previous landing.
       final room = s.beat - lastBeat[s.foot]!;
-      final dur = min(0.6, max(0.25, room * 0.75));
+      final dur = min(0.5, max(0.25, room * 0.75));
       final m = FloorMove(i, s.foot, s.stepClass, s.beat, dur, from, to);
       moves.add(m);
       _byFoot[s.foot]!.add(m);

@@ -85,6 +85,17 @@ class StepLegend extends StatelessWidget {
           Text('Left foot, then right foot. Arrows point the way the foot moves, seen from behind you.',
               style: theme.textTheme.bodyLarge?.copyWith(color: scheme.onSurfaceVariant)),
           const SizedBox(height: Space.sm),
+          Text.rich(
+            TextSpan(children: [
+              const TextSpan(text: 'Land on the beat.  ', style: TextStyle(fontWeight: AppType.heavy)),
+              TextSpan(
+                  text: 'Lift the foot as its step crosses the dashed lift line, and put it down as the step '
+                      'reaches the solid land line. The beat is when the foot lands.',
+                  style: TextStyle(color: scheme.onSurfaceVariant)),
+            ]),
+            style: theme.textTheme.bodyLarge,
+          ),
+          const SizedBox(height: Space.sm),
           for (final c in _legendSteps)
             row(
               leading: [

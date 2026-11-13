@@ -34,6 +34,10 @@ class StepChartController extends ChangeNotifier {
   /// verdict. Changes once a step, not once a frame.
   final spoken = ValueNotifier<String>('');
 
+  /// Beats before the landing at which a step's swing starts (the chart's
+  /// dashed lift line; the floor map lifts the foot then too).
+  static const liftBeats = 0.5;
+
   /// How long a lane wash and a pop label last.
   static const washMs = 250, popMs = 900;
 
@@ -218,6 +222,26 @@ class _StepChartPainter extends CustomPainter {
       final rect = lanes[h.foot.index].$2;
       canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(Radii.lg)),
           Paint()..color = _hitColor(h).withValues(alpha: 0.28 * (1 - age / StepChartController.washMs)));
+    }
+
+    // When to move: lift as a step crosses the dashed line (half a beat to go),
+    // land as it reaches the solid line. The beat is the landing.
+    final liftY = nowY - StepChartController.liftBeats * pxPerBeat;
+    for (final (_, rect) in lanes) {
+      if (liftY > headerH + 4) {
+        for (var x = rect.left + 12; x < rect.right - 12; x += 14) {
+          canvas.drawLine(
+              Offset(x, liftY),
+              Offset(min(x + 7, rect.right - 12), liftY),
+              Paint()
+                ..color = scheme.primary.withValues(alpha: 0.35)
+                ..strokeWidth = 2);
+        }
+        final lift = _text('lift', 12, scheme.primary.withValues(alpha: 0.8), AppType.heavy, letterSpacing: 1);
+        lift.paint(canvas, Offset(rect.left + 12, liftY - lift.height - 3));
+      }
+      final land = _text('land', 12, scheme.primary, AppType.heavy, letterSpacing: 1);
+      land.paint(canvas, Offset(rect.left + 12, nowY - land.height - 6));
     }
 
     // Steps scroll under the header: clip them to the body.
