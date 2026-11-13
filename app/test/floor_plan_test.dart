@@ -16,7 +16,7 @@ void main() {
     final name = f.uri.pathSegments.last;
     test('$name: each foot is back where it started after one loop', () {
       final plan = FloorPlan(load(name));
-      final end = plan.loopBeats + 0.3; // landed, before the next loop's first swing (0.6 beat early)
+      final end = plan.loopBeats + 1 - FloorPlan.liftBeats - 0.05; // landed, before the next loop's first swing
       for (final foot in Role.values) {
         final d = (plan.foot(foot, end).pos - plan.start[foot]!).distance;
         expect(d, lessThan(1e-9), reason: '$foot off by $d m');

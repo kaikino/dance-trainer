@@ -17,11 +17,11 @@ class FloorPlan {
       final s = preset.steps[i];
       final from = pos[s.foot]!;
       final to = landing(s.stepClass, s.foot, from, pos[_other(s.foot)]!);
-      // The swing ends on the beat (the landing is the beat); it starts half a
-      // beat before, as the chart's lift line says, never before the same
+      // The swing ends on the beat (the landing is the beat); it starts
+      // [liftBeats] before, at the chart's lift line, never before the same
       // foot's previous landing.
       final room = s.beat - lastBeat[s.foot]!;
-      final dur = min(0.5, max(0.25, room * 0.75));
+      final dur = min(liftBeats, max(0.25, room * 0.75));
       final m = FloorMove(i, s.foot, s.stepClass, s.beat, dur, from, to);
       moves.add(m);
       _byFoot[s.foot]!.add(m);
@@ -34,6 +34,10 @@ class FloorPlan {
   late final Map<Role, Offset> start;
   final moves = <FloorMove>[];
   final _byFoot = {Role.left: <FloorMove>[], Role.right: <FloorMove>[]};
+
+  /// Beats before the landing at which a step's swing starts: the step
+  /// chart's dashed lift line, and when the floor map lifts the foot.
+  static const liftBeats = 0.75;
 
   /// Centre-to-centre distance of the feet side by side (almost together), a
   /// step's length, a side step.

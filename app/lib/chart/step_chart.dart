@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../ble/protocol.dart';
 import '../models/preset.dart';
+import 'floor_plan.dart';
 import '../ui/style.dart';
 
 /// What the step chart shows. The dance screen moves [nowBeat] once a frame
@@ -34,9 +35,8 @@ class StepChartController extends ChangeNotifier {
   /// verdict. Changes once a step, not once a frame.
   final spoken = ValueNotifier<String>('');
 
-  /// Beats before the landing at which a step's swing starts (the chart's
-  /// dashed lift line; the floor map lifts the foot then too).
-  static const liftBeats = 0.5;
+  /// Beats before the landing at which a step's swing starts (the dashed lift line).
+  static const liftBeats = FloorPlan.liftBeats;
 
   /// How long a lane wash and a pop label last.
   static const washMs = 250, popMs = 900;
@@ -224,7 +224,7 @@ class _StepChartPainter extends CustomPainter {
           Paint()..color = _hitColor(h).withValues(alpha: 0.28 * (1 - age / StepChartController.washMs)));
     }
 
-    // When to move: lift as a step crosses the dashed line (half a beat to go),
+    // When to move: lift as a step crosses the dashed line (3/4 beat to go),
     // land as it reaches the solid line. The beat is the landing.
     final liftY = nowY - StepChartController.liftBeats * pxPerBeat;
     for (final (_, rect) in lanes) {
