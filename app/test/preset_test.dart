@@ -7,13 +7,15 @@ import 'package:flutter_test/flutter_test.dart';
 /// Every preset must be danceable (docs/preset-format.md):
 ///  - a foot may only travel while the other foot can hold the weight. A
 ///    traveling step puts the weight on the stepping foot; in_place may or may
-///    not (a step in place or a tap); a kick leaves it on the other foot.
-///  - over one loop, each foot's forward and sideways travel adds up to zero,
-///    so the loop can repeat without the feet drifting apart.
-/// Travel units: forward/back 1, side_out/side_in 1 sideways, a diagonal 1 of
-/// each (forward_out: 1 forward and 1 outward), cross and cross_behind 2 inward
-/// (past the other foot, so it needs a side step or two to undo; in front or
-/// behind is not counted as travel, as the foot lands level with the other).
+///    not (a step in place or a tap); a kick leaves it on the other foot; a
+///    step marked "weight": false (a touch) leaves it on the other foot too.
+///  - over one loop each foot's forward travel adds up to zero (forward/back 1,
+///    a diagonal 1 forward or back), and a foot that moves sideways one way
+///    also moves the other way, so the loop can repeat without the feet
+///    drifting apart. Sideways steps vary in size (a cross plus a close undoes
+///    two side steps in a grapevine), so sideways only the direction is checked:
+///    side_out and the _out diagonals are outward; side_in, the _in diagonals
+///    and both crosses inward.
 void main() {
   final dir = Directory('assets/presets');
   final files = dir.listSync().whereType<File>().where((f) => f.path.endsWith('.json')).toList();
@@ -46,7 +48,8 @@ List<String> danceProblems(List<Map<String, dynamic>> steps, {required bool loop
   final ordered = [...steps]..sort((a, b) => (a['beat'] as num).compareTo(b['beat'] as num));
   // Which feet may be holding the weight right now. Both at the start.
   var weight = {'L', 'R'};
-  final fwd = {'L': 0, 'R': 0}, out = {'L': 0, 'R': 0};
+  final fwd = {'L': 0, 'R': 0};
+  final outward = <String>{}, inward = <String>{};
   // Two passes when looping, so the step from the end back to the start is checked.
   for (var pass = 0; pass < (loop ? 2 : 1); pass++) {
     for (final s in ordered) {
@@ -60,44 +63,37 @@ List<String> danceProblems(List<Map<String, dynamic>> steps, {required bool loop
         problems.add('beat ${s['beat']}: $foot ${s['class']} while all the weight is on $foot');
       }
       if (pass == 0) {
+        fwd[foot] = fwd[foot]! +
+            switch (cls) {
+              StepClass.forward || StepClass.forwardOut || StepClass.forwardIn => 1,
+              StepClass.back || StepClass.backOut || StepClass.backIn => -1,
+              _ => 0,
+            };
         switch (cls) {
-          case StepClass.forward:
-            fwd[foot] = fwd[foot]! + 1;
-          case StepClass.back:
-            fwd[foot] = fwd[foot]! - 1;
-          case StepClass.sideOut:
-            out[foot] = out[foot]! + 1;
-          case StepClass.sideIn:
-            out[foot] = out[foot]! - 1;
-          case StepClass.forwardOut:
-            fwd[foot] = fwd[foot]! + 1;
-            out[foot] = out[foot]! + 1;
-          case StepClass.forwardIn:
-            fwd[foot] = fwd[foot]! + 1;
-            out[foot] = out[foot]! - 1;
-          case StepClass.backOut:
-            fwd[foot] = fwd[foot]! - 1;
-            out[foot] = out[foot]! + 1;
-          case StepClass.backIn:
-            fwd[foot] = fwd[foot]! - 1;
-            out[foot] = out[foot]! - 1;
-          case StepClass.cross || StepClass.crossBehind:
-            out[foot] = out[foot]! - 2;
-          case StepClass.inPlace || StepClass.kick || StepClass.none:
+          case StepClass.sideOut || StepClass.forwardOut || StepClass.backOut:
+            outward.add(foot);
+          case StepClass.sideIn || StepClass.forwardIn || StepClass.backIn || StepClass.cross || StepClass.crossBehind:
+            inward.add(foot);
+          default:
             break;
         }
       }
-      weight = switch (cls) {
-        StepClass.inPlace => {'L', 'R'},
-        StepClass.kick || StepClass.none => {other},
-        _ => {foot},
-      };
+      weight = s['weight'] == false
+          ? {other}
+          : switch (cls) {
+              StepClass.inPlace => {'L', 'R'},
+              StepClass.kick || StepClass.none => {other},
+              _ => {foot},
+            };
     }
   }
   if (loop) {
     for (final foot in ['L', 'R']) {
-      if (fwd[foot] != 0 || out[foot] != 0) {
-        problems.add('$foot ends each loop ${fwd[foot]} forward and ${out[foot]} outward, so the feet drift');
+      if (fwd[foot] != 0) {
+        problems.add('$foot ends each loop ${fwd[foot]} forward, so the feet drift');
+      }
+      if (outward.contains(foot) != inward.contains(foot)) {
+        problems.add('$foot only ever moves ${outward.contains(foot) ? 'outward' : 'inward'}, so the feet drift');
       }
     }
   }

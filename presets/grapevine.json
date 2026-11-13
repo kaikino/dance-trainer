@@ -9,10 +9,10 @@
     {"beat": 1.0, "foot": "R", "class": "side_out"},
     {"beat": 2.0, "foot": "L", "class": "cross_behind"},
     {"beat": 3.0, "foot": "R", "class": "side_out"},
-    {"beat": 4.0, "foot": "L", "class": "in_place"},
+    {"beat": 4.0, "foot": "L", "class": "side_in", "weight": false},
     {"beat": 5.0, "foot": "L", "class": "side_out"},
     {"beat": 6.0, "foot": "R", "class": "cross_behind"},
     {"beat": 7.0, "foot": "L", "class": "side_out"},
-    {"beat": 8.0, "foot": "R", "class": "in_place"}
+    {"beat": 8.0, "foot": "R", "class": "side_in", "weight": false}
   ]
 }
