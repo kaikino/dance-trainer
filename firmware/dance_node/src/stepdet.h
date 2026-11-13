@@ -26,8 +26,10 @@ typedef struct {
 void detect_task(void *arg);   // scans the fusion ring, emits step_window_t to window_q
 
 // Rule-based classifier (MVP, and fallback). Returns class + confidence 0..255.
+// vocab: bit c set = class c is in the routine being danced (0 = any class); a
+// travelling call outside it may be replaced by an adjacent routine class.
 // rules.h has the variant that also returns its features.
-dt_step_class_t rules_classify(const step_window_t *w, uint8_t *confidence);
+dt_step_class_t rules_classify(const step_window_t *w, uint16_t vocab, uint8_t *confidence);
 
 #ifdef __cplusplus
 }

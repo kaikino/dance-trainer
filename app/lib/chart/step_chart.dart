@@ -68,7 +68,7 @@ class StepChartController extends ChangeNotifier {
       final i = order[k];
       final s = steps[i];
       if (s.stepClass == StepClass.none || verdicts[i] != null) continue;
-      next = 'Next: ${footName(s.foot).toLowerCase()} foot ${stepLabel(s.stepClass)}, bar ${barOf(s.beat)}';
+      next = 'Next: ${footName(s.foot).toLowerCase()} foot ${stepLabel(s.stepClass, s.foot)}, bar ${barOf(s.beat)}';
       break;
     }
     final last = _lastVerdict;
@@ -243,7 +243,7 @@ class _StepChartPainter extends CustomPainter {
       final cx = laneX(s.foot) + laneW / 2;
       final cy = nowY - dBeat * pxPerBeat;
       final scale = next[s.foot] == i ? 1.15 : 1.0;
-      final tp = _text(stepLabel(s.stepClass), captionSize, scheme.onSurfaceVariant, AppType.strong,
+      final tp = _text(stepLabel(s.stepClass, s.foot), captionSize, scheme.onSurfaceVariant, AppType.strong,
           outline: scheme.surfaceContainerLow);
       tp.paint(canvas, Offset(cx - tp.width / 2, cy - r * scale - 6 - tp.height));
     }

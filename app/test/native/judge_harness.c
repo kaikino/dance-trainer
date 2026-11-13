@@ -19,7 +19,7 @@ int xQueueSend(QueueHandle_t q, const void *item, uint32_t t) {
 int xQueueReceive(QueueHandle_t q, void *item, uint32_t t) { return 0; }
 uint32_t dt_now_us(void) { return now_us; }
 void dt_log(char level, const char *tag, const char *fmt, ...) {}
-dt_step_class_t classify(const step_window_t *w, uint8_t *c) { *c = next_conf; return next_cls; }
+dt_step_class_t classify(const step_window_t *w, uint16_t vocab, uint8_t *c) { (void)vocab; *c = next_conf; return next_cls; }
 
 // ---- copied from ble.cpp ----
 static void on_schedule(uint8_t *data, uint16_t len)

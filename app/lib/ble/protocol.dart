@@ -15,8 +15,11 @@ final String uuidControl = dtUuid(0x0005);
 final String uuidStepEvent = dtUuid(0x0006);
 final String uuidStream = dtUuid(0x0007);
 
-/// sideIn: inward to close up beside the other foot; cross: inward past it.
-enum StepClass { none, inPlace, forward, back, sideOut, cross, kick, sideIn }
+/// sideIn: inward to close up beside the other foot; cross: inward past it,
+/// in front; crossBehind: inward past it, behind. The diagonals' out/in are
+/// relative to the midline like sideOut/sideIn: forwardOut is forward-left for
+/// the left foot and forward-right for the right foot.
+enum StepClass { none, inPlace, forward, back, sideOut, cross, kick, sideIn, forwardOut, forwardIn, backOut, backIn, crossBehind }
 
 enum Verdict { unjudged, correct, offBeat, wrongStep, missed, extra }
 
@@ -38,6 +41,11 @@ const stepClassNames = {
   'cross': StepClass.cross,
   'kick': StepClass.kick,
   'side_in': StepClass.sideIn,
+  'forward_out': StepClass.forwardOut,
+  'forward_in': StepClass.forwardIn,
+  'back_out': StepClass.backOut,
+  'back_in': StepClass.backIn,
+  'cross_behind': StepClass.crossBehind,
 };
 
 const schedFlagHeader = 0x01;

@@ -250,7 +250,7 @@ class DanceSession extends ChangeNotifier {
     }
     if (called.isEmpty) return;
     for (final s in called) {
-      chart.cue(s.foot, stepLabel(s.stepClass));
+      chart.cue(s.foot, stepLabel(s.stepClass, s.foot));
     }
     callout = called;
     _changed();
@@ -304,9 +304,9 @@ class DanceSession extends ChangeNotifier {
     final (title, detail) = switch (e.verdict) {
       Verdict.wrongStep => (
           'Wrong step',
-          '$name foot: ${stepLabel(e.stepClass)} instead of ${stepLabel(step.stepClass)}'
+          '$name foot: ${stepLabel(e.stepClass, foot)} instead of ${stepLabel(step.stepClass, foot)}'
         ),
-      _ => ('Missed step', '$name foot: ${stepLabel(step.stepClass)}'),
+      _ => ('Missed step', '$name foot: ${stepLabel(step.stepClass, foot)}'),
     };
     final h = MistakeHold(e.verdict, title, detail, barStart, _coach.nextTry);
     _run = null;

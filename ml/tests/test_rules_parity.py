@@ -37,7 +37,7 @@ def build_rules() -> ctypes.CDLL:
     subprocess.run(cmd, check=True)
     lib = ctypes.CDLL(str(out))
     lib.rules_classify_ex.restype = ctypes.c_int
-    lib.rules_classify_ex.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_void_p]
+    lib.rules_classify_ex.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.POINTER(ctypes.c_uint8), ctypes.c_void_p]
     return lib
 
 
@@ -52,18 +52,18 @@ class Features(ctypes.Structure):   # rules.h rules_features_t
                 ("roll_deg", ctypes.c_float), ("swing_ms", ctypes.c_float)]
 
 
-def c_classify(lib: ctypes.CDLL, w: np.ndarray) -> tuple:
+def c_classify(lib: ctypes.CDLL, w: np.ndarray, vocab: int = 0) -> tuple:
     sw = StepWindow()
     ctypes.memmove(ctypes.addressof(sw.x), np.ascontiguousarray(w, dtype=np.int8).ctypes.data, WIN_LEN * len(CHANNELS))
     conf = ctypes.c_uint8(0)
     f = Features()
-    cls = lib.rules_classify_ex(ctypes.byref(sw), ctypes.byref(conf), ctypes.byref(f))
+    cls = lib.rules_classify_ex(ctypes.byref(sw), vocab, ctypes.byref(conf), ctypes.byref(f))
     return cls, conf.value, (f.imp, f.e, f.s, f.how, f.how_e)
 
 
-def py_classify(w: np.ndarray) -> tuple:
+def py_classify(w: np.ndarray, vocab: int = 0) -> tuple:
     f = baseline.features(w)
-    cls, conf = baseline.decide(f)
+    cls, conf = baseline.decide(f, vocab=vocab)
     return int(cls), int(conf), (f["imp"], f["e"], f["s"], f["how"], f["how_e"])
 
 
@@ -113,12 +113,17 @@ def simulated_windows() -> list[np.ndarray]:
     return ws
 
 
+# No routine, and each dance's classes (judge.c passes the schedule's classes in dance mode).
+VOCABS = [0] + [realsim.vocab_mask(v) for v in realsim.DANCES.values()]
+
+
 def check(lib, ws) -> list:
     bad = []
     for i, w in enumerate(ws):
-        c, p = c_classify(lib, w), py_classify(w)
-        if c != p:
-            bad.append((i, c, p))
+        for v in VOCABS:
+            c, p = c_classify(lib, w, v), py_classify(w, v)
+            if c != p:
+                bad.append((i, v, c, p))
     return bad
 
 

@@ -12,16 +12,27 @@ export 'tokens.dart';
 /// draws steps and verdicts the same way.
 
 /// Short human name for a step class, as the dancer reads it ("side out", "tap").
-String stepLabel(StepClass c) => switch (c) {
-      StepClass.forward => 'forward',
-      StepClass.back => 'back',
-      StepClass.sideOut => 'side out',
-      StepClass.sideIn => 'side in',
-      StepClass.cross => 'cross',
-      StepClass.kick => 'kick',
-      StepClass.inPlace => 'tap',
-      StepClass.none => 'no step',
-    };
+/// With [foot], a diagonal reads as the way it goes on the floor ("forward
+/// right"); without, by its out/in name ("forward out").
+String stepLabel(StepClass c, [Role? foot]) {
+  String diagonal(String fb, bool out) =>
+      foot == null ? '$fb ${out ? 'out' : 'in'}' : '$fb ${(foot == Role.left) == out ? 'left' : 'right'}';
+  return switch (c) {
+    StepClass.forward => 'forward',
+    StepClass.back => 'back',
+    StepClass.sideOut => 'side out',
+    StepClass.sideIn => 'side in',
+    StepClass.forwardOut => diagonal('forward', true),
+    StepClass.forwardIn => diagonal('forward', false),
+    StepClass.backOut => diagonal('back', true),
+    StepClass.backIn => diagonal('back', false),
+    StepClass.cross => 'cross in front',
+    StepClass.crossBehind => 'cross behind',
+    StepClass.kick => 'kick',
+    StepClass.inPlace => 'tap',
+    StepClass.none => 'no step',
+  };
+}
 
 /// One plain sentence per step, for the step legend.
 String stepHelp(StepClass c) => switch (c) {
@@ -29,7 +40,12 @@ String stepHelp(StepClass c) => switch (c) {
       StepClass.back => 'Step this foot backward.',
       StepClass.sideOut => 'Step outwards to the side.',
       StepClass.sideIn => 'Bring this foot in beside the other one, without crossing.',
-      StepClass.cross => 'Step this foot across the other foot.',
+      StepClass.forwardOut => 'Step forward and outwards: forward left with the left foot, forward right with the right.',
+      StepClass.forwardIn => 'Step forward and inwards: forward right with the left foot, forward left with the right.',
+      StepClass.backOut => 'Step back and outwards: back left with the left foot, back right with the right.',
+      StepClass.backIn => 'Step back and inwards: back right with the left foot, back left with the right.',
+      StepClass.cross => 'Step this foot across in front of the other foot.',
+      StepClass.crossBehind => 'Step this foot across behind the other foot.',
       StepClass.kick => 'Swing the foot forward off the floor.',
       StepClass.inPlace => 'Touch the floor where you stand, no travel.',
       StepClass.none => '',
@@ -64,7 +80,9 @@ const stanceInstruction = 'Stand with your feet parallel and under your hips, ab
 /// Arrow for a step, as the dancer sees the chart (left lane = left foot).
 /// Side steps point outward and closes point inward; a cross goes inward past
 /// the other foot, so it is the inward arrow doubled (as a kick is a doubled
-/// forward). Material glyphs, not Unicode arrows, which Android draws as emoji.
+/// forward); a cross behind dips down (back) and then goes inward. Diagonals
+/// point the way the foot goes, mirrored per foot like the side steps.
+/// Material glyphs, not Unicode arrows, which Android draws as emoji.
 IconData? stepIcon(StepClass c, Role foot) {
   final left = foot == Role.left;
   return switch (c) {
@@ -72,7 +90,12 @@ IconData? stepIcon(StepClass c, Role foot) {
     StepClass.back => Icons.arrow_downward_rounded,
     StepClass.sideOut => left ? Icons.arrow_back_rounded : Icons.arrow_forward_rounded,
     StepClass.sideIn => left ? Icons.arrow_forward_rounded : Icons.arrow_back_rounded,
+    StepClass.forwardOut => left ? Icons.north_west_rounded : Icons.north_east_rounded,
+    StepClass.forwardIn => left ? Icons.north_east_rounded : Icons.north_west_rounded,
+    StepClass.backOut => left ? Icons.south_west_rounded : Icons.south_east_rounded,
+    StepClass.backIn => left ? Icons.south_east_rounded : Icons.south_west_rounded,
     StepClass.cross => left ? Icons.keyboard_double_arrow_right_rounded : Icons.keyboard_double_arrow_left_rounded,
+    StepClass.crossBehind => left ? Icons.subdirectory_arrow_right_rounded : Icons.subdirectory_arrow_left_rounded,
     StepClass.kick => Icons.keyboard_double_arrow_up_rounded,
     StepClass.inPlace => Icons.adjust_rounded,
     StepClass.none => null,

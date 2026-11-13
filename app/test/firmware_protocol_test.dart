@@ -87,6 +87,16 @@ void main() {
     expect(g.samples[0].ay, 20000);
   }, skip: skip);
 
+  test('step classes match dt_protocol.h, in wire order', () {
+    final h = File('../firmware/dance_node/src/dt_protocol.h').readAsStringSync();
+    final body = RegExp(r'typedef enum \{([^}]*)\} dt_step_class_t;').firstMatch(h)!.group(1)!;
+    final names = [
+      for (final m in RegExp(r'DT_CLASS_(\w+)').allMatches(body))
+        if (m.group(1) != 'COUNT') m.group(1)!.toLowerCase(),
+    ];
+    expect(names, [for (final c in StepClass.values) stepClassNames.entries.firstWhere((e) => e.value == c).key]);
+  });
+
   test('a schedule and start written by the app drive the node\'s judge; its events parse back', () async {
     final p = Preset.fromJson({
       'id': 513,

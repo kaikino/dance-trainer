@@ -37,7 +37,9 @@ G = 9.80665
 D2R = math.pi / 180
 
 CLASSES = [StepClass.IN_PLACE, StepClass.FORWARD, StepClass.BACK, StepClass.SIDE_OUT,
-           StepClass.CROSS, StepClass.KICK, StepClass.SIDE_IN]
+           StepClass.CROSS, StepClass.KICK, StepClass.SIDE_IN,
+           StepClass.FORWARD_OUT, StepClass.FORWARD_IN, StepClass.BACK_OUT, StepClass.BACK_IN,
+           StepClass.CROSS_BEHIND]
 
 
 @dataclass(frozen=True)
@@ -187,9 +189,28 @@ def _plan(cls: StepClass, rng, R: Realism, b: Body, beat: float):
     elif cls == StepClass.SIDE_IN:
         p0 = np.array([nx(), b.s0 + rng.uniform(0.10, 0.22) * H * f])
         p1 = np.array([nx(), rng.uniform(0.04, 0.10) * H])
-    elif cls == StepClass.CROSS:
+    elif cls in (StepClass.CROSS, StepClass.CROSS_BEHIND):
+        # past the other foot (y < 0), in front of it or behind it
         p0 = np.array([0.0, b.s0 + rng.uniform(0.0, 0.22) * H])
-        p1 = np.array([rng.choice([-1, 1]) * rng.uniform(0.05, 0.12) * H, -rng.uniform(0.02, 0.10) * H])
+        sx = 1 if cls == StepClass.CROSS else -1
+        p1 = np.array([sx * rng.uniform(0.05, 0.12) * H, -rng.uniform(0.02, 0.10) * H])
+        if cls == StepClass.CROSS_BEHIND:
+            lift *= 0.7
+    elif cls in (StepClass.FORWARD_OUT, StepClass.BACK_OUT):
+        # diagonal, 35-55° off the toe line
+        sx = 1 if cls == StepClass.FORWARD_OUT else -1
+        dy = rng.uniform(0.08, 0.15) * H * f
+        p1 = p0 + [sx * dy * rng.uniform(0.7, 1.4), dy]
+        if sx < 0:
+            lift *= 0.7
+    elif cls in (StepClass.FORWARD_IN, StepClass.BACK_IN):
+        # from wide, diagonally in to close beside the other foot
+        sx = 1 if cls == StepClass.FORWARD_IN else -1
+        p0 = np.array([nx(), b.s0 + rng.uniform(0.08, 0.15) * H * f])
+        p1 = np.array([0.0, rng.uniform(0.04, 0.10) * H])
+        p1[0] = p0[0] + sx * (p0[1] - p1[1]) * rng.uniform(0.7, 1.4)
+        if sx < 0:
+            lift *= 0.7
     elif cls == StepClass.IN_PLACE:
         p1 = p0 + np.clip(rng.normal(0, 0.012 * H, 2), -0.025, 0.025)
         lift = rng.uniform(0.02, 0.12) * H * (f if lazy else 1.0)

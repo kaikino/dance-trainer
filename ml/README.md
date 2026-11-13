@@ -14,7 +14,7 @@ pip install -r requirements.txt
 | 4 | `baseline.py runs/windows.npz` | rule-classifier accuracy (the bar to clear) |
 | – | `realsim.py`, `realsim.py --seed 2` (held out), `realsim.py --sweep all` | rule + detector on two independent physical simulators (`dt/footsim.py`, `dt/legsim.py`) and stress conditions, 218e818 vs now |
 | – | `twonode_eval.py` | cross vs side_in with both nodes (`dt/twonode.py`: roll sum, other roll, dead-reckoned separation) on both simulators; result in `runs/twonode.txt` (no gain worth building) |
-| – | `simtrain.py` | **stand-in until real data**: CNN trained on both simulators through the node pipeline; reports leave-one-simulator-out and CNN vs rule vs hybrid on the held-out seed; writes `runs/sim_windows.npz`, `runs/model_sim.keras` (copy to `runs/model.keras` / `runs/windows.npz`, then step 6). The firmware default stays `CLASSIFIER=rules`: on a simulator the CNN never saw it scores 51% vs the rule's 75% |
+| – | `simtrain.py` | **stand-in until real data**: CNN trained on both simulators through the node pipeline; reports leave-one-simulator-out and CNN vs rule vs hybrid on the held-out seed; writes `runs/sim_windows.npz`, `runs/model_sim.keras` (copy to `runs/model.keras` / `runs/windows.npz`, then step 6). The firmware default stays `CLASSIFIER=rules`: on a simulator the CNN never saw it scores 39% vs the rule's 66% (12 classes) |
 | 5 | `train.py runs/windows.npz` | leave-one-dancer-out CV, confusion matrices, `runs/model.keras` |
 | 6 | `export.py runs/model.keras runs/windows.npz` | `firmware/dance_node/src/model_weights.h` (float weights for `cnn.c`) and selftest vectors |
 

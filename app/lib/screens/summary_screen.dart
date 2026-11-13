@@ -328,7 +328,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Drill: ${footName(top.foot).toLowerCase()} foot, ${stepLabel(top.step)}',
+                    Text('Drill: ${footName(top.foot).toLowerCase()} foot, ${stepLabel(top.step, top.foot)}',
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                     Text('Practice from bar ${barOf(drillFrom)}',
                         style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSecondaryContainer)),
@@ -482,7 +482,7 @@ class _MistakeRow extends StatelessWidget {
         foregroundColor: theme.colorScheme.onPrimary,
         child: icon == null ? null : Icon(icon),
       ),
-      title: Text('${footName(group.foot)} foot, ${stepLabel(group.step)}', style: theme.textTheme.titleMedium),
+      title: Text('${footName(group.foot)} foot, ${stepLabel(group.step, group.foot)}', style: theme.textTheme.titleMedium),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: Space.sm),
         child: Wrap(
@@ -496,7 +496,7 @@ class _MistakeRow extends StatelessWidget {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.only(top: Space.xs),
-                child: Text('Did ${stepLabel(did)} instead of ${stepLabel(group.step)} ×$n',
+                child: Text('Did ${stepLabel(did, group.foot)} instead of ${stepLabel(group.step, group.foot)} ×$n',
                     style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
               ),
           ],

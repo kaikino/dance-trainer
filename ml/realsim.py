@@ -31,6 +31,8 @@ Usage:
   realsim.py --seed 2                held-out seed (do not tune on it)
   realsim.py --sets auditor --n 60   one set, bigger
   realsim.py --sweep all --n 60      author simulator, each knob past its range
+  realsim.py --sets dance_box,dance_grapevine --pipes new,vocab
+                                     one dance's routines, rule without / with the routine's classes
 Streams are cached in runs/simcache/ (delete to regenerate).
 """
 import argparse
@@ -68,18 +70,21 @@ def pipe_old(fused, right):
     return out
 
 
-def pipe_new(fused, right):
+def pipe_new(fused, right, vocab=0):
     det = node.NEW_DETECTOR
     out = []
     for a in node.detect_swing(fused, det):
         w = node.cut(fused, a, right, det.win_pre, det.win_post)
         f = baseline.features(w)
-        c, conf = baseline.decide(f)
+        c, conf = baseline.decide(f, vocab=vocab)
         out.append((a, int(c), int(conf), f))
     return out
 
 
 PIPES = {"old": pipe_old, "new": pipe_new}
+# "vocab": the new pipeline told which classes the routine uses (the node knows
+# its schedule), as judge.c does in dance mode. Streams carry s["vocab"].
+VOCAB_PIPE = "vocab"
 
 
 def _pipe(name):
@@ -104,7 +109,9 @@ STRESS = {
     "ball": (dict(p_land={"ball": 1.0}), {}),
     "heel": (dict(p_land={"heel": 1.0}), {}),
     "t140e": (dict(step_scale=0.6, lift=(0.02, 0.05)),
-              dict(bpm=140, eighth=True, cls_p=dict(in_place=1, forward=1, back=1, side_out=1, cross=1.5, side_in=4))),
+              dict(bpm=140, eighth=True, cls_p=dict(in_place=1, forward=1, back=1, side_out=1, cross=1, side_in=3,
+                                                   forward_out=0.8, forward_in=1.5, back_out=0.8, back_in=1.5,
+                                                   cross_behind=1))),
     "t140q": ({}, dict(bpm=140)),
     "lowkick": (dict(kick_phi=(20, 35)), {}),
     "calnarrow": (dict(cal_w=0.05), {}),
@@ -170,6 +177,26 @@ def jobs_auditor(n, seed):
     return [(seed * 100003 + 1000 * i, AUD_REAL, {}, "auditor") for i in range(n)]
 
 
+# Routines built only from one dance's steps (the auditor's simulator). The
+# vocabulary is what the node is told; side_in is in the grapevine set because the
+# simulator needs it to bring the feet back together.
+DANCES = {
+    "box": ["forward_out", "forward_in", "back_out", "back_in", "in_place"],
+    "grapevine": ["side_out", "cross_behind", "side_in", "in_place"],
+    "side": ["side_out", "side_in", "in_place"],
+    "basic": ["forward", "back", "in_place"],
+}
+
+
+def vocab_mask(classes) -> int:
+    return sum(1 << int(IDS[c]) for c in classes)
+
+
+def jobs_dance(dance, n, seed):
+    return [(seed * 100003 + 1000 * i + 29, AUD_REAL, {"classes": DANCES[dance]}, f"dance_{dance}")
+            for i in range(n)]
+
+
 def jobs_stress(n, seed):
     keys = list(STRESS)
     out = []
@@ -191,9 +218,14 @@ def streams(pool, name, n, seed):
         res = pool.map(gen_routine, jobs_auditor(n, seed), chunksize=1)
     elif name == "stress":
         res = pool.map(gen_routine, jobs_stress(n, seed), chunksize=1)
+    elif name.startswith("dance_"):
+        res = pool.map(gen_routine, jobs_dance(name[6:], n, seed), chunksize=1)
     else:
         raise ValueError(name)
     st = [s for r in res for s in r]
+    if name.startswith("dance_"):
+        for s_ in st:
+            s_["vocab"] = vocab_mask(DANCES[name[6:]])
     p.write_bytes(pickle.dumps(st))
     return st
 
@@ -206,7 +238,7 @@ def eval_stream(args):
     s, pname = args
     fu, right = s["fused"], s["right"]
     t = fu["t"]
-    res = _pipe(pname)(fu, right)
+    res = pipe_new(fu, right, s.get("vocab", 0)) if pname == VOCAB_PIPE else _pipe(pname)(fu, right)
     used = set()
     rows = []
     for ev in sorted(s["events"], key=lambda e: e["t_c"]):
@@ -317,7 +349,7 @@ def main() -> None:
         else:
             pooled = {p: ([], 0) for p in pipes}
             for name in a.sets.split(","):
-                n = a.n or {"author": 60, "auditor": 40, "stress": 42}[name]
+                n = a.n or {"author": 60, "auditor": 40, "stress": 42}.get(name, 30)
                 st = streams(pool, name, n, a.seed)
                 for p in pipes:
                     rows, ex = evaluate(pool, st, p)

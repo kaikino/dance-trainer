@@ -9,7 +9,12 @@ const _legendSteps = [
   StepClass.back,
   StepClass.sideOut,
   StepClass.sideIn,
+  StepClass.forwardOut,
+  StepClass.forwardIn,
+  StepClass.backOut,
+  StepClass.backIn,
   StepClass.cross,
+  StepClass.crossBehind,
   StepClass.kick,
   StepClass.inPlace,
 ];

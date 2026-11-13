@@ -21,12 +21,16 @@ Pedestrian-dead-reckoning on one int8 window (dt/windows.py), in physical units:
      (tilt error) cancel exactly, whatever the swing length or tempo. The sensor
      sits ~9 cm up the shank, which may still rotate at either ZUPT; the velocity
      that puts there (omega x r) is added back.
-  5. Classify on the horizontal displacement direction (angle sectors) and
-     distance in cm; kick from shank pitch (gyro) and foot height, for a toe-up
-     swing that comes back near where it left (a step that swings the shank as
-     far travels); cross vs side_in from the shank roll right after landing (a
+  5. Classify on the horizontal displacement direction and distance in cm;
+     kick from shank pitch (gyro) and foot height, for a toe-up swing that
+     comes back near where it left (a step that swings the shank as far
+     travels). Direction: the nearest of 8 45° sectors (forward, forward_out,
+     side_out, back_out, back, back_in, side_in, forward_in), or a cross (in
+     front, or behind) when the shank rolls inward right after landing (a
      crossing foot lands past the standing one, so its shank leans inward, roll
-     <= -5°; a close lands under its hip). Roll is relative to the calibration
+     <= -5°; a close lands under its hip). A class whose crossing disagrees with
+     the roll pays 45° extra (direction()). With the routine's classes given
+     (vocab), a call outside them goes to a routine class in an adjacent sector. Roll is relative to the calibration
      stance, which is therefore fixed (docs/bench-check.md). Single-node roll
      separates cross and close only ~75-80 % of the time in the auditor's
      simulator, so that call is "sure" only 5° or more from the threshold.
@@ -71,7 +75,10 @@ PHYS = dict(
     move_cm=6.0,            # below: in place
     sure_still_cm=4.0,      # confidence: in place is sure below this ...
     sure_move_cm=9.0,       # ... a step is sure above this (estimates are good to a few cm)
-    inward_half_deg=55.0,   # inward sector half-width around -y (crosses land in front/behind)
+    cross_off_deg=22.5,     # crosses travel this far either side of straight inward (front / behind)
+    cross_pen_deg=45.0,     # a class whose crossing disagrees with the roll costs this much extra angle
+    sure_dir_deg=8.0,       # confidence: a direction is sure this far inside its sector
+    vocab_reach_deg=67.5,   # the routine's steps may replace the call only this close (adjacent sector)
     cross_roll_deg=-5.0,    # shank roll after landing at or below this: cross
     sure_roll_deg=5.0,      # confidence: cross/close are sure this far from cross_roll_deg
     kick_pitch_deg=28.0,    # shank swings forward (toe up) at least this much ...
@@ -122,7 +129,10 @@ def thresholds(p: dict | None = None) -> dict:
         MOVE=int(round(d2(p["move_cm"]))),
         SURE_STILL=int(round(d2(p["sure_still_cm"]))),
         SURE_MOVE=int(round(d2(p["sure_move_cm"]))),
-        INWARD_TAN_X1000=int(round(1000 * math.tan(math.radians(p["inward_half_deg"])))),
+        CROSS_OFF_CDEG=int(round(100 * p["cross_off_deg"])),
+        CROSS_PEN_CDEG=int(round(100 * p["cross_pen_deg"])),
+        SURE_DIR_CDEG=int(round(100 * p["sure_dir_deg"])),
+        VOCAB_REACH_CDEG=int(round(100 * p["vocab_reach_deg"])),
         CROSS_TAN_X1000=int(round(1000 * math.tan(math.radians(-p["cross_roll_deg"])))),
         ROLL_BAND_X1000=int(round(1000 * (math.tan(math.radians(-p["cross_roll_deg"] + p["sure_roll_deg"]))
                                           - math.tan(math.radians(-p["cross_roll_deg"]))))),
@@ -270,15 +280,74 @@ def features(w: np.ndarray, T: dict = T) -> dict:
 
 SURE = 32   # margin at which a call is sure: confidence 128 + 32 = 160, the judge's default
 
+# Travelling classes: nominal direction (centidegrees of atan2(Y, X); +x toe, +y
+# outward) and whether the foot ends past the other one (shank rolled inward).
+# The order breaks ties and must match rules.c DIRS[].
+def _dirs(T: dict) -> list:
+    co = T["CROSS_OFF_CDEG"]
+    return [(StepClass.FORWARD, 0, False), (StepClass.FORWARD_OUT, 4500, False),
+            (StepClass.SIDE_OUT, 9000, False), (StepClass.BACK_OUT, 13500, False),
+            (StepClass.BACK, 18000, False), (StepClass.BACK_IN, -13500, False),
+            (StepClass.SIDE_IN, -9000, False), (StepClass.FORWARD_IN, -4500, False),
+            (StepClass.CROSS, -9000 + co, True), (StepClass.CROSS_BEHIND, -9000 - co, True)]
 
-def decide(f: dict, T: dict = T) -> tuple[StepClass, int]:
+
+def angle_cdeg(X: int, Y: int) -> int:
+    """atan2 in whole centidegrees, rounded half up (rules.c does the same in double)."""
+    return math.floor(math.degrees(math.atan2(Y, X)) * 100 + 0.5)
+
+
+def _adiff(a: int, b: int) -> int:
+    return abs((a - b + 18000) % 36000 - 18000)
+
+
+def _ranked(theta: int, rolled: bool, dirs: list, T: dict) -> list:
+    """[(cost, index)] best first: angle off the class's direction, plus a penalty
+    when the class's crossing disagrees with the roll."""
+    return sorted((_adiff(theta, nom) + (T["CROSS_PEN_CDEG"] if crossed != rolled else 0), i)
+                  for i, (_, nom, crossed) in enumerate(dirs))
+
+
+def direction(X: int, Y: int, ay_s: int, az_s: int, vocab: int = 0, T: dict = T) -> tuple:
+    """(class, direction margin 0..127, roll margin or 127 if the roll does not
+    matter, substituted). vocab: bit c set = class c is in the routine (0 = any).
+    The routine's classes replace the call only when the call is not one of them
+    and one of them is in an adjacent sector; such a call is never sure."""
+    dirs = _dirs(T)
+    theta = angle_cdeg(X, Y)
+    az = max(az_s, 1)
+    r = 1000 * ay_s + T["CROSS_TAN_X1000"] * az        # <= 0: shank rolled inward past the threshold
+    rolled = r <= 0
+    mr_raw = min(127, SURE * abs(r) // (T["ROLL_BAND_X1000"] * az))
+
+    def pick(idx):
+        sub = [dirs[i] for i in idx]
+        rk = _ranked(theta, rolled, sub, T)
+        best = sub[rk[0][1]]
+        ma = 127 if len(rk) < 2 else min(127, SURE * (rk[1][0] - rk[0][0]) // (2 * T["SURE_DIR_CDEG"]))
+        other = sub[_ranked(theta, not rolled, sub, T)[0][1]]
+        mr = mr_raw if other[0] != best[0] else 127
+        return best, ma, mr
+
+    best, ma, mr = pick(range(len(dirs)))
+    if vocab and not (vocab >> int(best[0])) & 1:
+        idx = [i for i, d in enumerate(dirs) if (vocab >> int(d[0])) & 1]
+        if idx:
+            vb, vma, vmr = pick(idx)
+            if _adiff(theta, vb[1]) <= T["VOCAB_REACH_CDEG"]:
+                return vb[0], min(SURE - 1, vma), vmr, True
+    return best[0], ma, mr, False
+
+
+def decide(f: dict, T: dict = T, vocab: int = 0) -> tuple[StepClass, int]:
     """Class and confidence from features(). Confidence is 128 + the smallest margin
     to a decision boundary, scaled so that SURE (32, confidence 160 = the judge's
     default threshold) is reached only where the simulators say the call is safe:
     a step within ~2-3 cm of the in-place threshold, within 5° of the cross roll,
-    within 14° of a direction boundary, or a low kick, stays below 160, so judge.c
-    does not score it as a wrong step. All operands are non-negative where divided
-    (C and Python integer division agree)."""
+    within 8° of a direction boundary (sectors are 45° wide), or a low kick, stays
+    below 160, so judge.c does not score it as a wrong step. All operands are
+    non-negative where divided (C and Python integer division agree).
+    vocab: the routine's classes as a bit mask (direction()); 0 = unrestricted."""
     X, Y, m = f["X"], f["Y"], f["m"]
     pmin, zmax_2m = f["pmin"], f["zmax_2m"]
     d2 = X * X + Y * Y
@@ -306,21 +375,10 @@ def decide(f: dict, T: dict = T) -> tuple[StepClass, int]:
         return StepClass.IN_PLACE, 128 + min(127, mi, mk)
     hi2 = T["SURE_MOVE"] * T["SURE_MOVE"]
     md = min(127, SURE * (d2 - mv2) // (hi2 - mv2))
-    ax_, ay_ = abs(X), abs(Y)
-    tin = T["INWARD_TAN_X1000"]
-    if Y < 0 and 1000 * ax_ <= tin * ay_:
-        ma = 127 * (tin * ay_ - 1000 * ax_) // (tin * ay_ + 1000 * ax_)
-        az_s = max(f["az_s"], 1)
-        r = 1000 * f["ay_s"] + T["CROSS_TAN_X1000"] * az_s     # tan(roll) <= tan(cross_roll): cross
-        mr = min(127, SURE * abs(r) // (T["ROLL_BAND_X1000"] * az_s))
-        return (StepClass.CROSS if r <= 0 else StepClass.SIDE_IN), 128 + min(md, ma, mr, mk)
-    if ax_ >= ay_:
-        ma = 127 * (ax_ - ay_) // (ax_ + ay_)
-        return (StepClass.FORWARD if X > 0 else StepClass.BACK), 128 + min(md, ma, mk)
-    ma = 127 * (ay_ - ax_) // (ax_ + ay_)
-    return StepClass.SIDE_OUT, 128 + min(md, ma, mk)
+    c, ma, mr, _ = direction(X, Y, f["ay_s"], f["az_s"], vocab, T)
+    return c, 128 + min(md, ma, mr, mk)
 
 
-def classify(w: np.ndarray) -> tuple[StepClass, int]:
+def classify(w: np.ndarray, vocab: int = 0) -> tuple[StepClass, int]:
     """w: (WIN_LEN, 9) int8. Returns (class, confidence 0..255)."""
-    return decide(features(w))
+    return decide(features(w), vocab=vocab)

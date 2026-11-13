@@ -453,7 +453,7 @@ class _DemoPanel extends StatelessWidget {
     final now = session.callout;
     final next = session.upcoming;
     String say(List<PresetStep> steps) =>
-        steps.map((s) => '${footName(s.foot)}: ${stepLabel(s.stepClass)}').join('  ·  ');
+        steps.map((s) => '${footName(s.foot)}: ${stepLabel(s.stepClass, s.foot)}').join('  ·  ');
     Widget icons(List<PresetStep> steps, double size, Color fg, Color bg) => Row(
           mainAxisSize: MainAxisSize.min,
           children: [

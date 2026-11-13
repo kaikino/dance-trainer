@@ -7,7 +7,7 @@
 #   make CLASSIFIER=cnn     use the CNN instead of the rule classifier (default: rules)
 #                           The CNN is trained on simulated feet only (ml/simtrain.py)
 #                           until real recordings exist; on a simulator it never saw
-#                           it scores 51% vs the rule's 75%, so the rule is the default.
+#                           it scores 39% vs the rule's 66% (12 classes), so the rule is the default.
 #   make RULESDBG=1         print the rule's features per strike from boot (else `rulesdbg on`)
 #
 # A stored role (serial command `role L|R`) overrides the compile-time default,

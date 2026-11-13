@@ -21,9 +21,16 @@ typedef enum {
     DT_CLASS_FORWARD,
     DT_CLASS_BACK,
     DT_CLASS_SIDE_OUT,
-    DT_CLASS_CROSS,
+    DT_CLASS_CROSS,         // inward past the other foot, in front of it
     DT_CLASS_KICK,
-    DT_CLASS_SIDE_IN,   // inward to close up beside the other foot, not crossing
+    DT_CLASS_SIDE_IN,       // inward to close up beside the other foot, not crossing
+    // Diagonals: out/in are relative to the midline, like side_out/side_in, so
+    // forward_out is forward-left for the left foot and forward-right for the right.
+    DT_CLASS_FORWARD_OUT,
+    DT_CLASS_FORWARD_IN,
+    DT_CLASS_BACK_OUT,
+    DT_CLASS_BACK_IN,
+    DT_CLASS_CROSS_BEHIND,  // inward past the other foot, behind it
     DT_CLASS_COUNT
 } dt_step_class_t;
 

@@ -21,7 +21,12 @@ typedef struct {
     float swing_ms;             // start → end ZUPT
 } rules_features_t;
 
-dt_step_class_t rules_classify_ex(const step_window_t *w, uint8_t *confidence, rules_features_t *f);
+dt_step_class_t rules_classify_ex(const step_window_t *w, uint16_t vocab, uint8_t *confidence, rules_features_t *f);
+
+// The routine-vocabulary substitution rules_classify() applies, for another
+// classifier's call: an allowed travelling class within the adjacent sector of
+// `cls` (by nominal direction), best by `score` (higher better), or `cls` itself.
+dt_step_class_t rules_vocab_neighbour(dt_step_class_t cls, uint16_t vocab, const float *score);
 
 #ifdef __cplusplus
 }

@@ -86,6 +86,21 @@ class FakeNodeClient extends NodeClient {
     debugPrint('fake $roleLabel: start mode=${mode.name} t0=$t0NodeUs, ${_timers.length} steps queued');
   }
 
+  /// Steps a classifier is likely to take [StepClass] for: a diagonal for its
+  /// straight or sideways part, one cross for the other.
+  static const _nearMisses = {
+    StepClass.forward: [StepClass.forwardOut, StepClass.forwardIn, StepClass.kick],
+    StepClass.back: [StepClass.backOut, StepClass.backIn],
+    StepClass.sideOut: [StepClass.forwardOut, StepClass.backOut],
+    StepClass.sideIn: [StepClass.forwardIn, StepClass.backIn, StepClass.cross],
+    StepClass.forwardOut: [StepClass.forward, StepClass.sideOut],
+    StepClass.forwardIn: [StepClass.forward, StepClass.sideIn, StepClass.cross],
+    StepClass.backOut: [StepClass.back, StepClass.sideOut],
+    StepClass.backIn: [StepClass.back, StepClass.sideIn, StepClass.crossBehind],
+    StepClass.cross: [StepClass.crossBehind, StepClass.sideIn],
+    StepClass.crossBehind: [StepClass.cross, StepClass.backIn],
+  };
+
   void _step(int dueNodeUs, StepClass expected) {
     if (_mode == Mode.idle) return;
     final capture = _mode == Mode.capture;
@@ -101,7 +116,11 @@ class FakeNodeClient extends NodeClient {
       verdict = Verdict.missed;
       errMs = 0;
     } else if (r < pMissed + pWrong) {
-      final others = StepClass.values.where((c) => c != expected && c != StepClass.none).toList();
+      // Mostly a near miss, as a real classifier confuses steps; sometimes anything.
+      final near = _nearMisses[expected] ?? const [];
+      final others = near.isNotEmpty && _rng.nextBool()
+          ? near
+          : StepClass.values.where((c) => c != expected && c != StepClass.none).toList();
       actual = others[_rng.nextInt(others.length)];
       verdict = Verdict.wrongStep;
     } else if (r < pMissed + pWrong + pLate) {

@@ -10,8 +10,10 @@ import 'package:flutter_test/flutter_test.dart';
 ///    not (a step in place or a tap); a kick leaves it on the other foot.
 ///  - over one loop, each foot's forward and sideways travel adds up to zero,
 ///    so the loop can repeat without the feet drifting apart.
-/// Travel units: forward/back 1, side_out/side_in 1 sideways, cross 2 inward
-/// (past the other foot, so it needs a side step or two to undo).
+/// Travel units: forward/back 1, side_out/side_in 1 sideways, a diagonal 1 of
+/// each (forward_out: 1 forward and 1 outward), cross and cross_behind 2 inward
+/// (past the other foot, so it needs a side step or two to undo; in front or
+/// behind is not counted as travel, as the foot lands level with the other).
 void main() {
   final dir = Directory('assets/presets');
   final files = dir.listSync().whereType<File>().where((f) => f.path.endsWith('.json')).toList();
@@ -67,7 +69,19 @@ List<String> danceProblems(List<Map<String, dynamic>> steps, {required bool loop
             out[foot] = out[foot]! + 1;
           case StepClass.sideIn:
             out[foot] = out[foot]! - 1;
-          case StepClass.cross:
+          case StepClass.forwardOut:
+            fwd[foot] = fwd[foot]! + 1;
+            out[foot] = out[foot]! + 1;
+          case StepClass.forwardIn:
+            fwd[foot] = fwd[foot]! + 1;
+            out[foot] = out[foot]! - 1;
+          case StepClass.backOut:
+            fwd[foot] = fwd[foot]! - 1;
+            out[foot] = out[foot]! + 1;
+          case StepClass.backIn:
+            fwd[foot] = fwd[foot]! - 1;
+            out[foot] = out[foot]! - 1;
+          case StepClass.cross || StepClass.crossBehind:
             out[foot] = out[foot]! - 2;
           case StepClass.inPlace || StepClass.kick || StepClass.none:
             break;

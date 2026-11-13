@@ -29,6 +29,7 @@ static struct {
     uint8_t  threshold;
     uint16_t window_ms;
     uint16_t seq;
+    uint16_t vocab;                      // classes in the schedule (bit c = class c), for the classifier
 } J;
 
 void judge_init(void)
@@ -56,10 +57,12 @@ void judge_start(dt_mode_t mode, uint32_t t0_node_us)
     J.t0_us = t0_node_us;
     J.seq = 0;
     J.n = J.pending_n;
+    J.vocab = 0;
     float beat_us = 60e6f / (J.bpm_x10 / 10.0f);
     for (int i = 0; i < J.n; i++) {
         J.steps[i].t_us = t0_node_us + (uint32_t)((J.pending[i].beat_x100 / 100.0f - 1.0f) * beat_us);
         J.steps[i].cls = J.pending[i].step_class;
+        if (J.steps[i].cls < DT_CLASS_COUNT) J.vocab |= (uint16_t)(1u << J.steps[i].cls);
         J.steps[i].matched = false;
         J.steps[i].reported_missed = false;
     }
@@ -94,7 +97,9 @@ static int nearest(uint32_t t)
 static void judge_step(const step_window_t *w)
 {
     uint8_t conf;
-    dt_step_class_t cls = classify(w, &conf);
+    // Dance mode: the classifier knows which steps this routine uses, so a call
+    // between two sectors goes to the routine's step (docs/preset-format.md).
+    dt_step_class_t cls = classify(w, J.mode == DT_MODE_DANCE ? J.vocab : 0, &conf);
     dt_step_event_t e = {
         .t_strike_node_us = w->t_strike_us,
         .step_class = cls, .confidence = conf,

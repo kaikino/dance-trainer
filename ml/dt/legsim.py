@@ -29,12 +29,15 @@ DEC = 10
 G = 9.80665
 D2R = math.pi / 180
 
-CLASSES = ["in_place", "forward", "back", "side_out", "cross", "kick", "side_in"]
+CLASSES = ["in_place", "forward", "back", "side_out", "cross", "kick", "side_in",
+           "forward_out", "forward_in", "back_out", "back_in", "cross_behind"]
 # StepClass ints from protocol
 from .protocol import StepClass
 CLS_ID = {"in_place": StepClass.IN_PLACE, "forward": StepClass.FORWARD, "back": StepClass.BACK,
           "side_out": StepClass.SIDE_OUT, "cross": StepClass.CROSS, "kick": StepClass.KICK,
-          "side_in": StepClass.SIDE_IN}
+          "side_in": StepClass.SIDE_IN, "forward_out": StepClass.FORWARD_OUT,
+          "forward_in": StepClass.FORWARD_IN, "back_out": StepClass.BACK_OUT, "back_in": StepClass.BACK_IN,
+          "cross_behind": StepClass.CROSS_BEHIND}
 
 
 def U(rng, a, b):
@@ -137,12 +140,17 @@ def plan_routine(rng, dz: Dancer, n_steps, bpm, eighth, classes=None, cls_p=None
             if c == "side_out" and sep > 0.42: continue
             if c == "forward" and P0[0] - Q[0] > 0.15: continue
             if c == "back" and P0[0] - Q[0] < -0.15: continue
-            if c == "cross" and sep < 0.06: continue
+            if c in ("cross", "cross_behind") and sep < 0.06: continue
+            if c.endswith("_out") and c != "side_out" and sep > 0.42: continue
+            if c.endswith("_in") and c != "side_in" and sep < 0.20: continue
+            if c.startswith("forward_") and P0[0] - Q[0] > 0.15: continue
+            if c.startswith("back_") and P0[0] - Q[0] < -0.15: continue
             feas.append(c)
         if not feas:
             feas = ["side_in"] if sep >= 0.24 else ["in_place"]
         if cls_p is None:
-            cls_p = {"in_place": 1, "forward": 1, "back": 1, "side_out": 1, "cross": 1.5, "kick": 0.8, "side_in": 4}
+            cls_p = {"in_place": 1, "forward": 1, "back": 1, "side_out": 1, "cross": 1, "kick": 0.8, "side_in": 3,
+                     "forward_out": 0.8, "forward_in": 1.5, "back_out": 0.8, "back_in": 1.5, "cross_behind": 1}
         if cls_p is not None:
             p = np.array([cls_p.get(c, 0) for c in feas], float)
             if p.sum() == 0: feas = feas; p = None
@@ -165,14 +173,23 @@ def plan_routine(rng, dz: Dancer, n_steps, bpm, eighth, classes=None, cls_p=None
             L = min(L, max(0.10, 0.48 - sep)); P1[1] += o * L; P1[0] += rng.normal(0, 0.03)
         elif c == "side_in":
             P1[1] = Q[1] + o * U(rng, 0.08, 0.16); P1[0] = Q[0] + rng.normal(0, 0.03)
-        elif c == "cross":
-            front = rng.random() < 0.5
+        elif c in ("forward_out", "back_out"):
+            sx = 1 if c == "forward_out" else -0.9
+            Ly = min(L * U(rng, 0.5, 0.75), max(0.08, 0.48 - sep))
+            P1[1] += o * Ly; P1[0] += sx * Ly * U(rng, 0.7, 1.4)
+        elif c in ("forward_in", "back_in"):
+            sx = 1 if c == "forward_in" else -0.9
+            P1[1] = Q[1] + o * U(rng, 0.08, 0.16)
+            P1[0] += sx * abs(P1[1] - P0[1]) * U(rng, 0.7, 1.4)
+        elif c in ("cross", "cross_behind"):
+            front = c == "cross"
             P1[1] = Q[1] - o * U(rng, -0.01, 0.13)
             P1[0] = Q[0] + (1 if front else -1) * U(rng, 0.07, 0.20)
             bulge[0] = (1 if front else -1) * U(rng, 0.0, 0.06)
         elif c == "kick":
             P1[:2] += rng.normal(0, 0.03, 2)
-        slide = c in ("side_in", "in_place", "forward", "back", "side_out") and rng.random() < (
+        slide = c in ("side_in", "in_place", "forward", "back", "side_out",
+                      "forward_out", "forward_in", "back_out", "back_in") and rng.random() < (
             dz.p_slide * (2 if c == "side_in" else 1)) and c != "in_place"
         # timing
         beats = 2 if c == "kick" else 1
@@ -186,9 +203,9 @@ def plan_routine(rng, dz: Dancer, n_steps, bpm, eighth, classes=None, cls_p=None
         # landing type
         if dz.p_land:
             lt = str(rng.choice(list(dz.p_land), p=list(dz.p_land.values())))
-        elif c == "forward":
+        elif c in ("forward", "forward_out", "forward_in"):
             lt = str(rng.choice(["heel", "flat", "ball"], p=[0.45, 0.3, 0.25]))
-        elif c in ("back", "cross"):
+        elif c in ("back", "cross", "back_out", "back_in", "cross_behind"):
             lt = str(rng.choice(["flat", "ball"], p=[0.3, 0.7]))
         elif c == "kick":
             lt = str(rng.choice(["flat", "ball"], p=[0.5, 0.5]))
@@ -199,15 +216,15 @@ def plan_routine(rng, dz: Dancer, n_steps, bpm, eighth, classes=None, cls_p=None
         st = dict(k=k, foot=o, cls=c, P0=P0, P1=P1, Q=Q, t_c=t_c, T_sw=T_sw, slide=slide, land=lt,
                   lift=U(rng, *dz.lift) * (0.6 if lazy else 1), bulge=bulge,
                   v_land=U(rng, *dz.v_land), v_h=U(rng, 0.0, 0.35),
-                  tau_imp=U(rng, *dz.tau_imp), heel_rise=0 if (slide or c == "back") else U(rng, 0, 25) * D2R,
+                  tau_imp=U(rng, *dz.tau_imp), heel_rise=0 if (slide or c.startswith("back")) else U(rng, 0, 25) * D2R,
                   land_ang=(U(rng, 5, 15) if lt == "heel" else U(rng, 10, 30) if lt == "ball" else 0) * D2R,
                   tau_roll=U(rng, 0.05, 0.14),
                   stay_ball=(lt == "ball" and rng.random() < 0.25),
                   beta=(U(rng, 0.0, 0.15) if c == "kick" else U(rng, 0.0, 0.7) if c == "in_place"
                         else U(rng, 0.3, 0.6) if c == "side_in" else U(rng, *dz.beta)),
                   gamma=U(rng, 0.0, 0.3), T_wt=U(rng, 0.08, 0.3),
-                  pyaw=(rng.normal(0, dz.pelvis_yaw) if c == "cross" else rng.normal(0, 3)),
-                  lrot=(rng.normal(0, dz.extra_rot) if c == "cross" else rng.normal(0, 4)),
+                  pyaw=(rng.normal(0, dz.pelvis_yaw) if c.startswith("cross") else rng.normal(0, 3)),
+                  lrot=(rng.normal(0, dz.extra_rot) if c.startswith("cross") else rng.normal(0, 4)),
                   kick_phi=U(rng, *dz.kick_phi) * D2R, kick_knee=U(rng, 0, 45) * D2R, kick_hold=U(rng, 0, 0.15) if rng.random() < 0.3 else 0.0)
         steps.append(st)
         feet[o] = P1

@@ -30,7 +30,8 @@ Advertised name: `DT-L` or `DT-R` by role.
 ## Enums
 
 ```
-step_class: 0 none, 1 in_place, 2 forward, 3 back, 4 side_out, 5 cross, 6 kick, 7 side_in
+step_class: 0 none, 1 in_place, 2 forward, 3 back, 4 side_out, 5 cross (in front), 6 kick, 7 side_in,
+            8 forward_out, 9 forward_in, 10 back_out, 11 back_in, 12 cross_behind
 verdict:    0 unjudged, 1 correct, 2 off_beat, 3 wrong_step, 4 missed, 5 extra
 mode:       0 idle, 1 capture, 2 dance
 role:       0 left, 1 right

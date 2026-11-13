@@ -42,7 +42,8 @@ int xQueueSend(QueueHandle_t q, const void *item, uint32_t t) {
 int xQueueReceive(QueueHandle_t q, void *item, uint32_t t) { return 0; }
 uint32_t dt_now_us(void) { return now_us; }
 void dt_log(char level, const char *tag, const char *fmt, ...) {}
-dt_step_class_t classify(const step_window_t *w, uint8_t *c) { *c = next_conf; return next_cls; }
+uint16_t last_vocab;
+dt_step_class_t classify(const step_window_t *w, uint16_t vocab, uint8_t *c) { last_vocab = vocab; *c = next_conf; return next_cls; }
 void h_schedule(int n, const uint16_t *beat_x100, const uint8_t *cls, uint16_t bpm_x10, uint32_t t0) {
     dt_sched_header_t h = {0}; h.bpm_x10 = bpm_x10; h.n_steps = n;
     judge_init(); judge_schedule_begin(&h);
@@ -126,6 +127,18 @@ def test_missed_step_is_not_matched_again():
     # A strike arriving after the step was already given up is an extra, not a second verdict.
     ev = run(lib, [1.0], [(1.2, 1.0 + 0.3 + lat + 0.2)])
     assert [e[0] for e in ev] == [MISSED, EXTRA], ev
+
+
+def test_classifier_gets_the_routine_classes():
+    """Dance mode passes the schedule's classes to the classifier as a bit mask."""
+    lib = build()
+    classes = [StepClass.FORWARD_OUT, StepClass.BACK_IN, StepClass.FORWARD_OUT, StepClass.IN_PLACE]
+    beat_x100 = np.array([100, 200, 300, 400], dtype=np.uint16)
+    cls = np.array([int(c) for c in classes], dtype=np.uint8)
+    lib.h_schedule(len(cls), beat_x100.ctypes.data, cls.ctypes.data, 600, 1_000_000)
+    lib.h_strike(1_100_000, 1_000_000, int(StepClass.FORWARD_OUT), 200)
+    want = sum(1 << int(c) for c in set(classes))
+    assert ctypes.c_uint16.in_dll(lib, "last_vocab").value == want
 
 
 def test_simulated_strikes_get_one_verdict_each():

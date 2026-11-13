@@ -1,0 +1,19 @@
+{
+  "id": 5,
+  "name": "Box step (diagonals)",
+  "bpm": 96,
+  "count_in_beats": 4,
+  "loop": true,
+  "repeats": 8,
+  "length_beats": 8,
+  "steps": [
+    {"beat": 1.0, "foot": "R", "class": "forward_out"},
+    {"beat": 2.0, "foot": "L", "class": "forward_out"},
+    {"beat": 3.0, "foot": "R", "class": "back_in"},
+    {"beat": 4.0, "foot": "L", "class": "back_in"},
+    {"beat": 5.0, "foot": "R", "class": "back_out"},
+    {"beat": 6.0, "foot": "L", "class": "back_out"},
+    {"beat": 7.0, "foot": "R", "class": "forward_in"},
+    {"beat": 8.0, "foot": "L", "class": "forward_in"}
+  ]
+}

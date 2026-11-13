@@ -18,9 +18,9 @@ Reported:
 THE RESULT IS A SIMULATION-TRAINED MODEL. Replace it with ml/train.py on real
 windows as soon as recordings exist (docs/bench-check.md, Capture mode).
 
-Result (30 epochs, 4773 windows), held-out seed 2, mixed sets:
-  both simulators in training     rule 80.7%  cnn 81.8%  hybrid 84.8%
-  CNN never saw that simulator    rule 75.2%  cnn 51.0%  hybrid 70.5%
+Result, 12 step classes (30 epochs), held-out seed 2, pooled sets:
+  both simulators in training     rule 73.3%  cnn 78.5%  hybrid 79.9%
+  CNN never saw that simulator    rule 65.6%  cnn 39.3%  hybrid 57.0%
 Real feet are the second case, so the firmware default stays the rule.
 
 Usage:
@@ -36,7 +36,7 @@ import numpy as np
 
 import realsim as RS
 from dt import baseline, node
-from dt.protocol import StepClass
+from dt.protocol import N_CLASSES, StepClass
 
 NONE = int(StepClass.NONE)
 TRAIN_SEEDS = (11, 12, 13)
@@ -90,8 +90,8 @@ def fit(x, y, epochs):
     tf.keras.utils.set_random_seed(0)
     m = T.build()
     # Balance: none and the common classes must not drown the rare ones.
-    counts = np.bincount(y, minlength=8).astype(float)
-    cw = {c: (len(y) / (8 * counts[c])) if counts[c] else 0.0 for c in range(8)}
+    counts = np.bincount(y, minlength=N_CLASSES).astype(float)
+    cw = {c: (len(y) / (N_CLASSES * counts[c])) if counts[c] else 0.0 for c in range(N_CLASSES)}
     xf = x.astype(np.float32)
     for _ in range(epochs):
         m.fit(T.augment(xf), y, epochs=1, batch_size=64, verbose=0, class_weight=cw)
@@ -189,7 +189,7 @@ def main():
         print("training data", flush=True)
         x, y, g = dataset(pool, sets)
         np.savez_compressed(out / "sim_windows.npz", x=x, y=y, dancer=g, session=np.zeros(len(y), int))
-        print("classes", {RS.NAMES[c]: int((y == c).sum()) for c in range(8)}, "total", len(y), flush=True)
+        print("classes", {RS.NAMES[c]: int((y == c).sum()) for c in range(N_CLASSES)}, "total", len(y), flush=True)
 
         import tensorflow as tf
         if not a.reuse:

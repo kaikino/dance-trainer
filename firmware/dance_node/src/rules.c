@@ -7,12 +7,15 @@
 //   double-integrate the foot-frame accel with zero velocity at both ends, plus
 //   the lever-arm velocity (shank still rotating) → direction sector and distance
 //   in cm; kick from shank pitch/height (toe-up and back near where it left);
-//   cross vs side_in from the shank roll after landing. Confidence reaches 160
-//   (the judge's default threshold) only away from every boundary.
+//   direction: nearest of 8 sectors (forward, the diagonals, side, back) or a
+//   cross in front / behind when the shank rolls inward after landing; the
+//   routine's classes (vocab) may replace an adjacent-sector call. Confidence
+//   reaches 160 (the judge's default threshold) only away from every boundary.
 #include "rules.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 // Thresholds in window units, generated from physical values by
 // ml/dt/baseline.py thresholds() (the parity test checks every one):
@@ -32,7 +35,10 @@
 #define RULE_MOVE               2101    // 6 cm                 below: in place
 #define RULE_SURE_STILL         1401    // 4 cm                 in place is sure below this
 #define RULE_SURE_MOVE          3152    // 9 cm                 a step is sure above this
-#define RULE_INWARD_TAN_X1000   1428    // tan(55°)·1000        inward sector half-width
+#define RULE_CROSS_OFF_CDEG     2250    // 22.5°                crosses: this far either side of straight inward
+#define RULE_CROSS_PEN_CDEG     4500    // 45°                  crossing disagrees with the roll: extra angle
+#define RULE_SURE_DIR_CDEG      800     // 8°                   a direction is sure this far inside its sector
+#define RULE_VOCAB_REACH_CDEG   6750    // 67.5°                routine classes may replace an adjacent call
 #define RULE_CROSS_TAN_X1000    87      // tan(5°)·1000         roll <= -5° after landing: cross
 #define RULE_ROLL_BAND_X1000    89      // tan(10°)-tan(5°)     cross/close sure 5° from the threshold
 #define RULE_KICK_PITCH         185     // 28°                  shank toe-up swing ...
@@ -76,7 +82,79 @@ static bool quiet3(const bool *quiet, int k) { return quiet[k - 1] && quiet[k] &
 static int64_t imin64(int64_t a, int64_t b) { return a < b ? a : b; }
 static int64_t imax64(int64_t a, int64_t b) { return a > b ? a : b; }
 
-dt_step_class_t rules_classify_ex(const step_window_t *w, uint8_t *confidence, rules_features_t *f)
+// Travelling classes: nominal direction (centidegrees of atan2(Y, X), +x toe, +y
+// outward) and whether the foot ends past the other one. Order breaks ties and
+// must match baseline.py _dirs().
+typedef struct { uint8_t cls; int16_t nom; bool crossed; } dir_t;
+static const dir_t DIRS[] = {
+    {DT_CLASS_FORWARD, 0, false},      {DT_CLASS_FORWARD_OUT, 4500, false},
+    {DT_CLASS_SIDE_OUT, 9000, false},  {DT_CLASS_BACK_OUT, 13500, false},
+    {DT_CLASS_BACK, 18000, false},     {DT_CLASS_BACK_IN, -13500, false},
+    {DT_CLASS_SIDE_IN, -9000, false},  {DT_CLASS_FORWARD_IN, -4500, false},
+    {DT_CLASS_CROSS, -9000 + RULE_CROSS_OFF_CDEG, true},
+    {DT_CLASS_CROSS_BEHIND, -9000 - RULE_CROSS_OFF_CDEG, true},
+};
+#define N_DIRS ((int)(sizeof DIRS / sizeof DIRS[0]))
+
+static int32_t adiff(int32_t a, int32_t b)
+{
+    int32_t d = ((a - b + 18000) % 36000 + 36000) % 36000 - 18000;
+    return d < 0 ? -d : d;
+}
+
+static int32_t dir_cost(int32_t theta, bool rolled, int i)
+{
+    return adiff(theta, DIRS[i].nom) + (DIRS[i].crossed != rolled ? RULE_CROSS_PEN_CDEG : 0);
+}
+
+// Best and runner-up cost among the directions in vocab (0 = all), Python sorted() order.
+static int dir_best(int32_t theta, bool rolled, uint16_t vocab, int32_t *c1, int32_t *c2)
+{
+    int b = -1; *c1 = INT32_MAX; *c2 = INT32_MAX;
+    for (int i = 0; i < N_DIRS; i++) {
+        if (vocab && !((vocab >> DIRS[i].cls) & 1)) continue;
+        int32_t c = dir_cost(theta, rolled, i);
+        if (c < *c1) { *c2 = *c1; *c1 = c; b = i; }
+        else if (c < *c2) *c2 = c;
+    }
+    return b;
+}
+
+// Best direction in vocab (0 = all) with its direction margin and roll margin
+// (127 if the roll does not change the call): baseline.py direction() pick().
+static bool dir_pick(int32_t theta, bool rolled, int64_t mr_raw, uint16_t vocab, int *b, int64_t *ma, int64_t *mr)
+{
+    int32_t c1, c2, o1, o2;
+    *b = dir_best(theta, rolled, vocab, &c1, &c2);
+    if (*b < 0) return false;
+    int o = dir_best(theta, !rolled, vocab, &o1, &o2);
+    *ma = c2 == INT32_MAX ? 127 : imin64(127, SURE * (int64_t)(c2 - c1) / (2 * RULE_SURE_DIR_CDEG));
+    *mr = DIRS[o].cls != DIRS[*b].cls ? mr_raw : 127;
+    return true;
+}
+
+// baseline.py direction(). A call replaced by the routine's classes is never sure.
+static dt_step_class_t direction(int64_t X, int64_t Y, int64_t ay_s, int64_t az_s, uint16_t vocab,
+                                 int64_t *ma, int64_t *mr)
+{
+    const int32_t theta = (int32_t)floor(atan2((double)Y, (double)X) * (18000.0 / 3.14159265358979323846) + 0.5);
+    const int64_t az = az_s > 1 ? az_s : 1;
+    const int64_t r = 1000 * ay_s + RULE_CROSS_TAN_X1000 * az;     // <= 0: rolled inward 5° or more
+    const bool rolled = r <= 0;
+    const int64_t mr_raw = imin64(127, SURE * llabs(r) / (RULE_ROLL_BAND_X1000 * az));
+    int b, vb;
+    int64_t vma, vmr;
+    dir_pick(theta, rolled, mr_raw, 0, &b, ma, mr);
+    if (vocab && !((vocab >> DIRS[b].cls) & 1)
+        && dir_pick(theta, rolled, mr_raw, vocab, &vb, &vma, &vmr)
+        && adiff(theta, DIRS[vb].nom) <= RULE_VOCAB_REACH_CDEG) {
+        *ma = imin64(SURE - 1, vma); *mr = vmr;
+        return (dt_step_class_t)DIRS[vb].cls;
+    }
+    return (dt_step_class_t)DIRS[b].cls;
+}
+
+dt_step_class_t rules_classify_ex(const step_window_t *w, uint16_t vocab, uint8_t *confidence, rules_features_t *f)
 {
     const int n = WIN_LEN, S = WIN_PRE_SAMPLES;
     int32_t sm2[WIN_LEN], gm2[WIN_LEN];
@@ -208,24 +286,27 @@ dt_step_class_t rules_classify_ex(const step_window_t *w, uint8_t *confidence, r
     }
     const int64_t hi2 = (int64_t)RULE_SURE_MOVE * RULE_SURE_MOVE;
     const int64_t md = imin64(127, SURE * (d2 - mv2) / (hi2 - mv2));
-    const int64_t ax = llabs(X), ay = llabs(Y), tin = RULE_INWARD_TAN_X1000;
-    if (Y < 0 && 1000 * ax <= tin * ay) {
-        const int64_t ma = 127 * (tin * ay - 1000 * ax) / (tin * ay + 1000 * ax);
-        const int64_t az = az_s > 1 ? az_s : 1;
-        const int64_t r = 1000 * ay_s + RULE_CROSS_TAN_X1000 * az;     // <= 0: rolled inward 5° or more
-        const int64_t mr = imin64(127, SURE * llabs(r) / (RULE_ROLL_BAND_X1000 * az));
-        *confidence = (uint8_t)(128 + imin64(imin64(md, ma), imin64(mr, mk)));
-        return r <= 0 ? DT_CLASS_CROSS : DT_CLASS_SIDE_IN;
-    }
-    if (ax >= ay) {
-        *confidence = (uint8_t)(128 + imin64(imin64(md, 127 * (ax - ay) / (ax + ay)), mk));
-        return X > 0 ? DT_CLASS_FORWARD : DT_CLASS_BACK;
-    }
-    *confidence = (uint8_t)(128 + imin64(imin64(md, 127 * (ay - ax) / (ax + ay)), mk));
-    return DT_CLASS_SIDE_OUT;
+    int64_t ma = 127, mr = 127;
+    dt_step_class_t c = direction(X, Y, ay_s, az_s, vocab, &ma, &mr);
+    *confidence = (uint8_t)(128 + imin64(imin64(md, ma), imin64(mr, mk)));
+    return c;
 }
 
-dt_step_class_t rules_classify(const step_window_t *w, uint8_t *confidence)
+dt_step_class_t rules_vocab_neighbour(dt_step_class_t cls, uint16_t vocab, const float *score)
 {
-    return rules_classify_ex(w, confidence, NULL);
+    if (!vocab || ((vocab >> cls) & 1)) return cls;
+    int k = -1;
+    for (int i = 0; i < N_DIRS; i++) if (DIRS[i].cls == cls) k = i;
+    if (k < 0) return cls;                       // none, in place, kick: never replaced
+    int best = -1;
+    for (int i = 0; i < N_DIRS; i++) {
+        if (!((vocab >> DIRS[i].cls) & 1) || adiff(DIRS[k].nom, DIRS[i].nom) > RULE_VOCAB_REACH_CDEG) continue;
+        if (best < 0 || score[DIRS[i].cls] > score[DIRS[best].cls]) best = i;
+    }
+    return best < 0 ? cls : (dt_step_class_t)DIRS[best].cls;
+}
+
+dt_step_class_t rules_classify(const step_window_t *w, uint16_t vocab, uint8_t *confidence)
+{
+    return rules_classify_ex(w, vocab, confidence, NULL);
 }

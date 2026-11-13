@@ -42,15 +42,28 @@ the left for the left foot and to the right for the right foot.
 | `forward`, `back` | steps toward the toe / heel |
 | `side_out` | steps outward, away from the other foot |
 | `side_in` | steps inward to close up beside the other foot, without crossing |
-| `cross` | steps inward past the other foot (in front or behind) |
+| `cross` | steps inward past the other foot, in front of it |
+| `cross_behind` | steps inward past the other foot, behind it |
+| `forward_out`, `forward_in` | steps diagonally forward and out / in: `forward_out` is forward-left for the left foot and forward-right for the right; `forward_in` the opposite |
+| `back_out`, `back_in` | the same, diagonally backward: `back_out` is back-left for the left foot, back-right for the right |
 | `in_place` | lifts and lands on the same spot, with or without weight (a tap) |
 | `kick` | kicks forward without traveling |
+
+In dance mode each node is told which classes its part of the routine uses. A
+travelling step that lands between two direction sectors (they are 45° wide, so
+a sloppy diagonal is easily half forward) is then called as the routine's step
+when that step is in the neighbouring sector; such a call is never "sure", so at the default threshold it
+can't be scored as a wrong step. A step that clearly went another way is still
+called what it was. One classifier serves every dance this way, instead of a
+model per dance.
 
 ## Routines must be danceable
 
 `app/test/preset_test.dart` checks every preset: a foot may only travel while
 the other foot can hold the weight (a traveling step puts the weight on the
 stepping foot; `in_place` may or may not), and over one loop each foot's
-forward and sideways travel adds up to zero, so the loop can repeat.
+forward and sideways travel adds up to zero, so the loop can repeat. A diagonal
+counts one unit forward (or back) and one outward (or inward); a cross of
+either kind two units inward.
 
 Beat `b` happens at `t0 + (b − 1) × 60000 / bpm` ms.
