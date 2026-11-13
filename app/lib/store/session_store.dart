@@ -258,4 +258,40 @@ class SessionRecorder {
         for (final name in ['session.json', 'L.csv', 'R.csv', 'events.csv'])
           if (File('${dir.path}/$name').existsSync()) File('${dir.path}/$name'),
       ];
+
+  /// Where [saveToDevice] puts this session: Documents/DanceTrainer/<id> on
+  /// the device's shared storage, which the Files app and a USB cable can
+  /// reach and which survives reinstalling the app (the app's own folder,
+  /// where every session is recorded, does neither).
+  Future<Directory> savedDir() async => Directory('${await sharedRoot()}/$sessionId');
+
+  bool _saved = false;
+  Future<bool> isSaved() async {
+    if (_saved) return true;
+    try {
+      return await (await savedDir()).exists();
+    } catch (_) {
+      return false; // no shared storage (tests, desktop)
+    }
+  }
+
+  /// Copies the session's files to [savedDir]. Returns the folder.
+  Future<Directory> saveToDevice() async {
+    final out = await savedDir();
+    await out.create(recursive: true);
+    for (final f in files) {
+      await f.copy('${out.path}/${f.uri.pathSegments.last}');
+    }
+    _saved = true;
+    return out;
+  }
+
+  /// Documents/DanceTrainer on shared storage. Android 11+ lets an app create
+  /// files there without a permission.
+  static Future<String> sharedRoot() async {
+    final ext = await getExternalStorageDirectory(); // .../Android/data/<pkg>/files
+    final i = ext?.path.indexOf('/Android/') ?? -1;
+    final root = i > 0 ? ext!.path.substring(0, i) : '/storage/emulated/0';
+    return '$root/Documents/DanceTrainer';
+  }
 }

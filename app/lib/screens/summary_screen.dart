@@ -69,6 +69,9 @@ String timingAdvice(double? meanMs) => switch (meanMs?.roundToDouble()) {
 class _SummaryScreenState extends State<SummaryScreen> {
   HistoryEntry? _self, _previous;
 
+  /// null while saving; true once this run is in Documents/DanceTrainer.
+  bool? _saved = false;
+
   NodeManager get manager => widget.manager;
   Preset get preset => widget.preset;
   SessionKind get kind => widget.kind;
@@ -80,6 +83,9 @@ class _SummaryScreenState extends State<SummaryScreen> {
   void initState() {
     super.initState();
     if (kind != SessionKind.capture) _loadHistory();
+    recorder.isSaved().then((v) {
+      if (mounted && v) setState(() => _saved = true);
+    });
   }
 
   Future<void> _loadHistory() async {
@@ -98,6 +104,24 @@ class _SummaryScreenState extends State<SummaryScreen> {
         ),
       );
 
+  /// Keeps this run: copies its files to Documents/DanceTrainer/<session> on
+  /// the tablet. (Every run is recorded in the app's own folder anyway; that
+  /// one is not reachable from a computer and goes with the app.)
+  Future<void> _save() async {
+    setState(() => _saved = null);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await recorder.saveToDevice();
+      if (!mounted) return;
+      setState(() => _saved = true);
+      messenger.showSnackBar(SnackBar(content: Text('Saved to Documents/DanceTrainer/${recorder.sessionId}')));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saved = false);
+      messenger.showSnackBar(SnackBar(content: Text('Could not save: $e')));
+    }
+  }
+
   Future<void> _export() => Share.shareXFiles(
         [for (final f in recorder.files) XFile(f.path)],
         subject: 'Dance Trainer session ${recorder.sessionId}',
@@ -107,7 +131,13 @@ class _SummaryScreenState extends State<SummaryScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Session summary')),
+      appBar: AppBar(
+        title: const Text('Session summary'),
+        actions: [
+          // Sharing the files (email, Drive, …) is still here, out of the way.
+          IconButton(onPressed: _export, icon: const Icon(Icons.ios_share_rounded), tooltip: 'Share the files'),
+        ],
+      ),
       bottomNavigationBar: BottomActions(
         maxWidth: 1100,
         children: [
@@ -116,17 +146,15 @@ class _SummaryScreenState extends State<SummaryScreen> {
             icon: const Icon(Icons.replay_rounded),
             label: const Text('Try again'),
           ),
-          // Icon only on a phone, where the word does not fit.
-          MediaQuery.sizeOf(context).width < 600
-              ? OutlinedButton(
-                  onPressed: _export,
-                  child: const Icon(Icons.ios_share_rounded, semanticLabel: 'Export'),
-                )
-              : OutlinedButton.icon(
-                  onPressed: _export,
-                  icon: const Icon(Icons.ios_share_rounded),
-                  label: const Text('Export'),
-                ),
+          OutlinedButton.icon(
+            onPressed: _saved == false ? _save : null,
+            icon: switch (_saved) {
+              null => const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+              true => const Icon(Icons.check_rounded),
+              false => const Icon(Icons.save_alt_rounded),
+            },
+            label: Text(_saved == true ? 'Saved' : 'Save'),
+          ),
           OutlinedButton(
             onPressed: () => Navigator.popUntil(context, (r) => r.isFirst),
             child: const Text('Done'),
