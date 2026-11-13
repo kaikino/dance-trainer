@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:path_provider/path_provider.dart';
+import 'app_dirs.dart';
 
 /// Per-device settings, kept in `settings.json` in the app's documents folder.
 class AppSettings {
@@ -20,7 +20,7 @@ class AppSettings {
   static String? lastKind;
   static Map<String, double> tempoByKind = {};
 
-  static Future<File> _file() async => File('${(await getApplicationDocumentsDirectory()).path}/settings.json');
+  static Future<File> _file() async => File('${(await AppDirs.private()).path}/settings.json');
 
   static Future<void> load() async {
     try {

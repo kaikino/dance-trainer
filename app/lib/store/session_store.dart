@@ -3,12 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../ble/clock_sync.dart';
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
 import '../models/preset.dart';
+import 'app_dirs.dart';
 
 /// One recorded step, as written to events.csv (docs/data-format.md).
 class RecordedEvent {
@@ -89,7 +89,7 @@ class SessionRecorder {
     String two(int v) => v.toString().padLeft(2, '0');
     sessionId =
         '${now.year}${two(now.month)}${two(now.day)}-${two(now.hour)}${two(now.minute)}${two(now.second)}-$dancer';
-    final docs = await getApplicationDocumentsDirectory();
+    final docs = await AppDirs.private();
     dir = Directory('${docs.path}/sessions/$sessionId');
     await dir.create(recursive: true);
 
@@ -283,12 +283,6 @@ class SessionRecorder {
     savedTo = null;
   }
 
-  /// Documents/DanceTrainer on shared storage. Android 11+ lets an app create
-  /// files there without a permission.
-  static Future<String> sharedRoot() async {
-    final ext = await getExternalStorageDirectory(); // .../Android/data/<pkg>/files
-    final i = ext?.path.indexOf('/Android/') ?? -1;
-    final root = i > 0 ? ext!.path.substring(0, i) : '/storage/emulated/0';
-    return '$root/Documents/DanceTrainer';
-  }
+  /// Where kept runs go, outside the app's own data (see [AppDirs.shared]).
+  static Future<String> sharedRoot() => AppDirs.shared();
 }

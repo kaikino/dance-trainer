@@ -16,8 +16,12 @@ Future<void> main() async {
 }
 
 class DanceTrainerApp extends StatelessWidget {
-  const DanceTrainerApp({super.key, required this.manager});
+  const DanceTrainerApp({super.key, required this.manager, this.home});
   final NodeManager manager;
+
+  /// The first screen; the home screen unless a test shows another one in
+  /// the app's shell (theme, safe areas).
+  final Widget? home;
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +40,7 @@ class DanceTrainerApp extends StatelessWidget {
           child: SafeArea(top: false, child: child!),
         );
       },
-      home: ConnectScreen(manager: manager),
+      home: home ?? ConnectScreen(manager: manager),
     );
   }
 

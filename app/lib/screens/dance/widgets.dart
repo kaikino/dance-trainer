@@ -10,44 +10,49 @@ class _StatusHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SizedBox(
-      height: 64,
-      child: Row(
-        children: [
-          Expanded(
-            // Shrinks rather than cuts "Bar 12 of 16" in a narrow side panel or at large text.
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(text, maxLines: 1, style: theme.textTheme.headlineMedium),
+    return LayoutBuilder(builder: (context, c) {
+      // Smaller beat dots in a narrow side panel (a phone on its side).
+      final big = c.maxWidth >= 300 ? 22.0 : 16.0, small = c.maxWidth >= 300 ? 14.0 : 10.0;
+      final gap = c.maxWidth >= 300 ? Space.sm : Space.xs;
+      return SizedBox(
+        height: 64,
+        child: Row(
+          children: [
+            Expanded(
+              // Shrinks rather than cuts "Bar 12 of 16" in a narrow side panel or at large text.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(text, maxLines: 1, style: theme.textTheme.headlineMedium),
+              ),
             ),
-          ),
-          Semantics(
-            label: beatInBar == null ? null : 'beat ${beatInBar! + 1} of $beatsPerBar',
-            excludeSemantics: true,
-            child: Row(
-              children: [
-                for (var i = 0; i < beatsPerBar; i++)
-                  Container(
-                    width: 22,
-                    height: 22,
-                    margin: const EdgeInsets.only(left: Space.sm),
-                    alignment: Alignment.center,
-                    child: Container(
-                      width: beatInBar == i ? 22 : 14,
-                      height: beatInBar == i ? 22 : 14,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: beatInBar == i ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest,
+            Semantics(
+              label: beatInBar == null ? null : 'beat ${beatInBar! + 1} of $beatsPerBar',
+              excludeSemantics: true,
+              child: Row(
+                children: [
+                  for (var i = 0; i < beatsPerBar; i++)
+                    Container(
+                      width: big,
+                      height: big,
+                      margin: EdgeInsets.only(left: gap),
+                      alignment: Alignment.center,
+                      child: Container(
+                        width: beatInBar == i ? big : small,
+                        height: beatInBar == i ? big : small,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: beatInBar == i ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest,
+                        ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
-    );
+          ],
+        ),
+      );
+    });
   }
 }
 
@@ -471,9 +476,14 @@ class _DemoPanel extends StatelessWidget {
               StatusPill(icon: Icons.visibility_rounded, text: 'Watch first: not judged', color: scheme.primary),
               if (!strip) ...[
                 const SizedBox(height: Space.lg),
-                Text('Lift as a step crosses the dashed line; land as it reaches the solid line. '
-                    'The beat is the landing, as on the floor map.',
-                    style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant)),
+                // Fades out where the panel is short (a phone on its side).
+                Flexible(
+                  child: Text(
+                      'Lift as a step crosses the dashed line; land as it reaches the solid line. '
+                      'The beat is the landing, as on the floor map.',
+                      overflow: TextOverflow.fade,
+                      style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant)),
+                ),
               ],
             ],
           ),

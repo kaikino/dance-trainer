@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../ble/node_client.dart';
 import '../ble/protocol.dart';
@@ -12,6 +11,8 @@ import '../ui/style.dart';
 import 'dance_screen.dart';
 import 'preset_screen.dart';
 import 'recording_screen.dart';
+import '../store/app_dirs.dart';
+import '../ui/share.dart';
 
 /// End-of-session numbers: accuracy as a ring (first-try accuracy in
 /// Practice), timing, mistakes by type and by foot and step, a drill button
@@ -71,7 +72,7 @@ String timingAdvice(double? meanMs) => switch (meanMs?.roundToDouble()) {
 class _SummaryScreenState extends State<SummaryScreen> {
   HistoryEntry? _self, _previous;
 
-  /// null while saving; true once this run is in Documents/DanceTrainer.
+  /// null while saving; true once this run is kept ([AppDirs.shared]).
   bool? _saved = false;
   bool _discarded = false;
 
@@ -89,7 +90,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
   void initState() {
     super.initState();
     if (kind != SessionKind.capture) _loadHistory();
-    if (_autoSave) _save(quiet: true);
+    // After the first frame: saving may show a message, which needs the screen built.
+    if (_autoSave) WidgetsBinding.instance.addPostFrameCallback((_) => _save(quiet: true));
   }
 
   Future<void> _loadHistory() async {
@@ -108,8 +110,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
         ),
       );
 
-  /// Keeps this run: copies its files to Documents/DanceTrainer/<session> on
-  /// the tablet. (Every run is recorded in the app's own folder anyway; that
+  /// Keeps this run: copies its files to [AppDirs.shared] on the device.
+  /// (Every run is recorded in the app's own folder anyway; that
   /// one is not reachable from a computer and goes with the app.)
   Future<void> _save({bool quiet = false}) async {
     setState(() => _saved = null);
@@ -129,11 +131,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
   }
 
   /// The saved folder, from Documents on.
-  String _savedPath() {
-    final p = recorder.savedTo?.path ?? '';
-    final i = p.indexOf('/Documents/');
-    return i < 0 ? p : p.substring(i + 1);
-  }
+  String _savedPath() => AppDirs.describe(recorder.savedTo?.path ?? '');
 
   /// The run's raw data as graphs (the saved copy if there is one).
   void _viewData() => Navigator.push(
@@ -144,7 +142,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Discard this run?'),
-        content: const Text('Its recording is deleted from the tablet and left out of the training session.'),
+        content: Text('Its recording is deleted from ${AppDirs.deviceName(MediaQuery.sizeOf(context))} '
+            'and left out of the training session.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Discard')),
@@ -161,10 +160,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
   void _done() => Navigator.popUntil(
       context, (r) => r.isFirst || (_autoSave && r.settings.name == PresetScreen.routeName));
 
-  Future<void> _export() => Share.shareXFiles(
-        [for (final f in recorder.files) XFile(f.path)],
-        subject: 'Dance Trainer session ${recorder.sessionId}',
-      );
+  Future<void> _export() => shareFiles(context, recorder.files, subject: 'Dance Trainer session ${recorder.sessionId}');
 
   @override
   Widget build(BuildContext context) {

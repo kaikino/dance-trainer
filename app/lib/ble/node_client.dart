@@ -323,25 +323,40 @@ class NodeManager extends ChangeNotifier {
     return connectedNodes.length;
   }
 
-  static String _scanErrorMessage(String raw) => raw.toLowerCase().contains('permission')
-      ? 'Allow the Nearby devices (Bluetooth) permission in Settings, then scan again.'
+  static String _scanErrorMessage(String raw) => raw.toLowerCase().contains('permission') ||
+          raw.toLowerCase().contains('unauthorized')
+      ? _permissionMessage
       : 'Could not scan for the nodes ($raw).';
+
+  /// Where the Bluetooth permission lives on this platform.
+  static String get _permissionMessage => defaultTargetPlatform == TargetPlatform.iOS
+      ? 'Allow Bluetooth for Dance Trainer in Settings › Privacy & Security › Bluetooth, then scan again.'
+      : 'Allow the Nearby devices (Bluetooth) permission in Settings, then scan again.';
 
   Future<void> _ensureAdapterOn() async {
     if (!await FlutterBluePlus.isSupported) {
       throw const BleUnavailable('This device has no Bluetooth LE.');
     }
+    // iOS reports "unknown" until the user answers its Bluetooth prompt (the
+    // first scan), so wait for that answer there.
+    final ios = defaultTargetPlatform == TargetPlatform.iOS;
     final state = await FlutterBluePlus.adapterState
         .where((s) => s != BluetoothAdapterState.unknown)
         .first
-        .timeout(const Duration(seconds: 3), onTimeout: () => BluetoothAdapterState.unknown);
+        .timeout(Duration(seconds: ios ? 60 : 3), onTimeout: () => BluetoothAdapterState.unknown);
     switch (state) {
       case BluetoothAdapterState.on:
         return;
       case BluetoothAdapterState.unauthorized:
-        throw const BleUnavailable('Allow the Nearby devices (Bluetooth) permission in Settings, then scan again.');
+        throw BleUnavailable(_permissionMessage);
+      case BluetoothAdapterState.unknown when ios:
+        throw const BleUnavailable('Bluetooth is not ready yet. Answer the Bluetooth prompt if one is showing, then scan again.');
       default:
-        throw const BleUnavailable('Turn on Bluetooth to find the ankle nodes.', adapterOff: true);
+        throw BleUnavailable(
+            ios
+                ? 'Turn on Bluetooth (Settings or Control Center) to find the ankle nodes.'
+                : 'Turn on Bluetooth to find the ankle nodes.',
+            adapterOff: true);
     }
   }
 

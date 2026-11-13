@@ -4,8 +4,10 @@ import '../store/recording.dart';
 import '../store/session_store.dart';
 import '../ui/style.dart';
 import 'recording_screen.dart';
+import '../store/app_dirs.dart';
+import 'package:flutter/foundation.dart';
 
-/// Saved recordings on the tablet (Documents/DanceTrainer), by training
+/// Saved recordings on the device ([AppDirs.shared]), by training
 /// session: open a run to see its data, or delete a run or a whole session.
 class RecordingsScreen extends StatefulWidget {
   const RecordingsScreen({super.key});
@@ -46,7 +48,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   }
 
   Future<void> _deleteRun(RunInfo r) async {
-    if (!await confirmDelete(context, 'Delete this run?', '${r.preset}, ${_when(r)}. Its recording is removed from the tablet.')) {
+    if (!await confirmDelete(context, 'Delete this run?', '${r.preset}, ${_when(r)}. Its recording is removed from ${AppDirs.deviceName(MediaQuery.sizeOf(context))}.')) {
       return;
     }
     await r.dir.delete(recursive: true);
@@ -56,7 +58,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   Future<void> _deleteFolder(RecordingFolder f) async {
     final n = f.runs.length;
     if (!await confirmDelete(context, 'Delete this ${f.training ? 'training session' : 'folder'}?',
-        '${f.title}: $n run${n == 1 ? '' : 's'} removed from the tablet.')) {
+        '${f.title}: $n run${n == 1 ? '' : 's'} removed from ${AppDirs.deviceName(MediaQuery.sizeOf(context))}.')) {
       return;
     }
     if (f.dir.path == _root) {
@@ -111,7 +113,10 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Text('On the tablet in Documents/DanceTrainer (Files app, or over USB).',
+                              Text(
+                                  defaultTargetPlatform == TargetPlatform.iOS
+                                      ? 'In ${AppDirs.sharedLabel} (Files app, or Finder over USB).'
+                                      : 'In ${AppDirs.sharedLabel} on ${AppDirs.deviceName(MediaQuery.sizeOf(context))} (Files app, or over USB).',
                                   style: theme.textTheme.bodyMedium
                                       ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                               const SizedBox(height: Space.md),

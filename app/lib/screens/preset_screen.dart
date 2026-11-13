@@ -15,6 +15,7 @@ import 'calibrate_screen.dart';
 import 'dance_screen.dart';
 import 'history_screen.dart';
 import 'sound_sync_dialog.dart';
+import '../store/app_dirs.dart';
 
 export '../models/session_kind.dart';
 
@@ -187,12 +188,22 @@ class _PresetScreenState extends State<PresetScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                // No nodes needed: the chart and the music only.
-                OutlinedButton.icon(
-                  onPressed: _selected == null ? null : () => _start(demo: true),
-                  icon: const Icon(Icons.visibility_rounded),
-                  label: Text(narrow ? 'Watch' : 'Watch first', maxLines: 1, overflow: TextOverflow.ellipsis),
-                ),
+                // No nodes needed: the chart and the music only. On a phone
+                // just the eye, so Start keeps its words.
+                if (MediaQuery.sizeOf(context).width < 430)
+                  Tooltip(
+                    message: 'Watch first',
+                    child: OutlinedButton(
+                      onPressed: _selected == null ? null : () => _start(demo: true),
+                      child: const Icon(Icons.visibility_rounded, semanticLabel: 'Watch first'),
+                    ),
+                  )
+                else
+                  OutlinedButton.icon(
+                    onPressed: _selected == null ? null : () => _start(demo: true),
+                    icon: const Icon(Icons.visibility_rounded),
+                    label: Text(narrow ? 'Watch' : 'Watch first', maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
               ],
             ),
       body: presets == null
@@ -277,7 +288,7 @@ class _PresetScreenState extends State<PresetScreen> {
                 style: theme.textTheme.titleMedium),
             subtitle: Text(t == null
                 ? ''
-                : 'Every recorded run is saved to Documents/DanceTrainer/${t.id}. '
+                : 'Every recorded run is saved to ${AppDirs.describe(t.dir.path)}. '
                     'Discard a bad run on its summary.'),
             trailing: Wrap(
               spacing: Space.sm,

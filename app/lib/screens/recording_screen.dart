@@ -3,12 +3,13 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../ble/protocol.dart';
 import '../chart/floor_map.dart' show floorColor;
 import '../store/recording.dart';
 import '../ui/style.dart';
+import '../store/app_dirs.dart';
+import '../ui/share.dart';
 
 /// The raw data of one recorded run: acceleration, rotation and tilt per foot
 /// against time, with the beats and every step the node reported, so a
@@ -44,9 +45,9 @@ class _RecordingScreenState extends State<RecordingScreen> {
   final _plots = {_Plot.acc, _Plot.gyro, _Plot.tilt};
   final _view = ValueNotifier<(double, double)>((0, 10));
 
-  /// Left above right instead of side by side; remembered while the app runs.
-  static bool _stackedPref = false;
-  bool get _stacked => _stackedPref;
+  /// Left above right instead of side by side, once chosen; remembered while
+  /// the app runs. Unset: side by side, except on a phone held upright.
+  static bool? _stackedPref;
   final _cursor = ValueNotifier<double?>(null);
 
   @override
@@ -70,7 +71,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   }
 
   Future<void> _delete() async {
-    final yes = await confirmDelete(context, 'Delete this run?', 'Its recording is removed from the tablet.');
+    final yes = await confirmDelete(context, 'Delete this run?', 'Its recording is removed from ${AppDirs.deviceName(MediaQuery.sizeOf(context))}.');
     if (!yes) return;
     await widget.dir.delete(recursive: true);
     if (mounted) Navigator.pop(context, true);
@@ -100,9 +101,8 @@ class _RecordingScreenState extends State<RecordingScreen> {
         actions: [
           if (r != null)
             IconButton(
-              onPressed: () => Share.shareXFiles([
-                for (final f in r.dir.listSync().whereType<File>()) XFile(f.path),
-              ], subject: 'Dance Trainer recording ${r.id}'),
+              onPressed: () => shareFiles(context, r.dir.listSync().whereType<File>().toList(),
+                  subject: 'Dance Trainer recording ${r.id}'),
               icon: const Icon(Icons.ios_share_rounded),
               tooltip: 'Share the files',
             ),
@@ -124,6 +124,11 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   Widget _body(BuildContext context, Recording r) {
     final theme = Theme.of(context);
+    final size = MediaQuery.sizeOf(context);
+    // A phone (either way up): the page scrolls through charts of a fixed,
+    // readable height. A tablet: every chart fits the screen.
+    final compact = size.width < 700 || size.height < 560;
+    final stacked = _stackedPref ?? (compact && size.width < size.height);
     final feet = switch (_feet) {
       _Feet.left => [Role.left],
       _Feet.right => [Role.right],
@@ -133,94 +138,174 @@ class _RecordingScreenState extends State<RecordingScreen> {
       for (final p in _Plot.values)
         if (_plots.contains(p) && (p != _Plot.gyro || feet.any((f) => r.feet[f]!.gyr != null))) p
     ];
+    final controls = _controls(context, r, stacked, compact: compact);
+    final Widget charts;
+    if (feet.isEmpty) {
+      charts = Center(child: Text('No sensor data in this run.', style: theme.textTheme.titleMedium));
+    } else if (compact) {
+      final h = size.height < 500 ? 150.0 : 175.0;
+      charts = ListView(
+        padding: const EdgeInsets.only(bottom: Space.sm),
+        children: [
+          if (stacked)
+            for (final f in feet) ...[
+              _footHeader(context, f),
+              for (final p in plots)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Space.xs),
+                  child: SizedBox(height: h, child: _chart(r, f, p, showTime: true)),
+                ),
+              const SizedBox(height: Space.sm),
+            ]
+          else ...[
+            Row(children: [
+              for (final f in feet) Expanded(child: _footHeader(context, f)),
+            ]),
+            for (final p in plots)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Space.xs),
+                child: SizedBox(
+                  height: h,
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    for (var i = 0; i < feet.length; i++) ...[
+                      if (i > 0) const SizedBox(width: Space.sm),
+                      Expanded(child: _chart(r, feet[i], p, showTime: true)),
+                    ],
+                  ]),
+                ),
+              ),
+          ],
+        ],
+      );
+    } else {
+      charts = Flex(
+        // Left beside right (each foot a column of charts), or left above
+        // right (each foot a row of charts).
+        direction: stacked ? Axis.vertical : Axis.horizontal,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < feet.length; i++) ...[
+            if (i > 0) const SizedBox(width: Space.md, height: Space.sm),
+            Expanded(child: _column(context, r, feet[i], plots, across: stacked)),
+          ],
+        ],
+      );
+    }
+    Widget scrollRow(List<Widget> children) => SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: [
+            for (var i = 0; i < children.length; i++) ...[
+              if (i > 0) const SizedBox(width: Space.sm),
+              children[i],
+            ],
+          ]),
+        );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.md),
+      padding: EdgeInsets.fromLTRB(compact ? Space.md : Space.lg, 0, compact ? Space.md : Space.lg, Space.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _facts(context, r),
+          compact ? scrollRow(_factChips(context, r)) : Wrap(spacing: Space.sm, runSpacing: Space.xs, children: _factChips(context, r)),
           const SizedBox(height: Space.sm),
-          Wrap(
-            spacing: Space.sm,
-            runSpacing: Space.sm,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SegmentedButton<_Feet>(
-                segments: const [
-                  ButtonSegment(value: _Feet.left, label: Text('Left')),
-                  ButtonSegment(value: _Feet.right, label: Text('Right')),
-                  ButtonSegment(value: _Feet.both, label: Text('Both')),
-                ],
-                selected: {_feet},
-                showSelectedIcon: false,
-                onSelectionChanged: (s) => setState(() => _feet = s.first),
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.view_column_rounded,
-                      size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  Switch(
-                    value: _stacked,
-                    onChanged: (v) => setState(() => _stackedPref = v),
-                  ),
-                  Icon(Icons.view_agenda_rounded,
-                      size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  const SizedBox(width: Space.xs),
-                  GestureDetector(
-                    onTap: () => setState(() => _stackedPref = !_stackedPref),
-                    child: Text('Left above right', style: Theme.of(context).textTheme.labelLarge),
-                  ),
-                ],
-              ),
-              const SizedBox(width: Space.sm),
-              for (final p in _Plot.values)
-                FilterChip(
-                  label: Text(p.title),
-                  selected: _plots.contains(p),
-                  onSelected: (on) => setState(() => on ? _plots.add(p) : (_plots.length > 1 ? _plots.remove(p) : null)),
+          compact
+              ? scrollRow(controls)
+              : Wrap(
+                  spacing: Space.sm,
+                  runSpacing: Space.sm,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: controls,
                 ),
-              const SizedBox(width: Space.sm),
-              OutlinedButton.icon(
-                onPressed: r.strikes.isEmpty ? null : () => _stepList(context, r),
-                icon: const Icon(Icons.format_list_bulleted_rounded),
-                label: Text('Steps (${r.strikes.length})'),
-              ),
-              TextButton.icon(
-                onPressed: () => _view.value = _clampView(0, r.duration),
-                icon: const Icon(Icons.zoom_out_map_rounded),
-                label: const Text('Whole run'),
-              ),
-            ],
-          ),
           const SizedBox(height: Space.sm),
-          Expanded(
-            child: feet.isEmpty
-                ? Center(child: Text('No sensor data in this run.', style: theme.textTheme.titleMedium))
-                : Flex(
-                    // Left beside right (each foot a column of charts), or left
-                    // above right (each foot a row of charts).
-                    direction: _stacked ? Axis.vertical : Axis.horizontal,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (var i = 0; i < feet.length; i++) ...[
-                        if (i > 0) const SizedBox(width: Space.md, height: Space.sm),
-                        Expanded(child: _column(context, r, feet[i], plots, across: _stacked)),
-                      ],
-                    ],
-                  ),
-          ),
+          Expanded(child: charts),
           const SizedBox(height: Space.sm),
-          SizedBox(height: 44, child: _Overview(rec: r, view: _view, clamp: _clampView)),
-          const SizedBox(height: Space.xs),
-          Text('Drag to move, pinch to zoom, tap for values. Thin lines are beats; coloured lines are the steps the node felt.',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          SizedBox(height: compact ? 36 : 44, child: _Overview(rec: r, view: _view, clamp: _clampView)),
+          if (!compact) ...[
+            const SizedBox(height: Space.xs),
+            Text('Drag to move, pinch to zoom, tap for values. Thin lines are beats; coloured lines are the steps the node felt.',
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          ],
         ],
       ),
     );
   }
 
-  Widget _facts(BuildContext context, Recording r) {
+  List<Widget> _controls(BuildContext context, Recording r, bool stacked, {required bool compact}) {
+    final faint = Theme.of(context).colorScheme.onSurfaceVariant;
+    return [
+      SegmentedButton<_Feet>(
+        segments: const [
+          ButtonSegment(value: _Feet.left, label: Text('Left')),
+          ButtonSegment(value: _Feet.right, label: Text('Right')),
+          ButtonSegment(value: _Feet.both, label: Text('Both')),
+        ],
+        selected: {_feet},
+        showSelectedIcon: false,
+        onSelectionChanged: (s) => setState(() => _feet = s.first),
+      ),
+      Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.view_column_rounded, size: 20, color: faint),
+          Switch(value: stacked, onChanged: (v) => setState(() => _stackedPref = v)),
+          Icon(Icons.view_agenda_rounded, size: 20, color: faint),
+          const SizedBox(width: Space.xs),
+          GestureDetector(
+            onTap: () => setState(() => _stackedPref = !stacked),
+            child: Text('Left above right', style: Theme.of(context).textTheme.labelLarge),
+          ),
+        ],
+      ),
+      for (final p in _Plot.values)
+        FilterChip(
+          label: Text(p.title),
+          selected: _plots.contains(p),
+          onSelected: (on) => setState(() => on ? _plots.add(p) : (_plots.length > 1 ? _plots.remove(p) : null)),
+        ),
+      OutlinedButton.icon(
+        onPressed: r.strikes.isEmpty ? null : () => _stepList(context, r),
+        icon: const Icon(Icons.format_list_bulleted_rounded),
+        label: Text('Steps (${r.strikes.length})'),
+      ),
+      TextButton.icon(
+        onPressed: () => _view.value = _clampView(0, r.duration),
+        icon: const Icon(Icons.zoom_out_map_rounded),
+        label: const Text('Whole run'),
+      ),
+    ];
+  }
+
+  Widget _footHeader(BuildContext context, Role f) => Padding(
+        padding: const EdgeInsets.only(bottom: Space.xs),
+        child: Row(children: [
+          Container(width: 10, height: 10, decoration: BoxDecoration(color: floorColor(f), shape: BoxShape.circle)),
+          const SizedBox(width: Space.xs),
+          Text('${footName(f)} ankle',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+        ]),
+      );
+
+  /// One chart; drag, pinch and tap move the view every chart shares.
+  Widget _chart(Recording r, Role f, _Plot p, {required bool showTime}) => LayoutBuilder(
+        builder: (context, c) => _Gestures(
+          width: c.maxWidth - _ChartPainter.left - _ChartPainter.right,
+          view: _view,
+          cursor: _cursor,
+          clamp: _clampView,
+          child: _Chart(
+            series: r.feet[f]!,
+            plot: p,
+            foot: f,
+            capture: r.capture,
+            strikes: [for (final m in r.strikes) if (m.foot == f) m],
+            beats: r.beats,
+            view: _view,
+            cursor: _cursor,
+            showTime: showTime,
+          ),
+        ),
+      );
+
+  List<Widget> _factChips(BuildContext context, Recording r) {
     final theme = Theme.of(context);
     final when = RecordingIndex.parseStamp(r.id);
     String foot(Role f) {
@@ -241,79 +326,48 @@ class _RecordingScreenState extends State<RecordingScreen> {
       foot(Role.left),
       foot(Role.right),
     ];
-    return Wrap(
-      spacing: Space.sm,
-      runSpacing: Space.xs,
-      children: [
-        for (final c in chips)
-          Chip(
-            label: Text(c),
-            visualDensity: VisualDensity.compact,
-            labelStyle: theme.textTheme.labelLarge,
-            side: BorderSide.none,
-            backgroundColor: theme.colorScheme.surfaceContainerHigh,
-          ),
-      ],
-    );
+    return [
+      for (final c in chips)
+        Chip(
+          label: Text(c),
+          visualDensity: VisualDensity.compact,
+          labelStyle: theme.textTheme.labelLarge,
+          side: BorderSide.none,
+          backgroundColor: theme.colorScheme.surfaceContainerHigh,
+        ),
+    ];
   }
 
-  /// One foot's charts: down a column (side by side layout) or along a row
-  /// ([across]: left above right). Each chart pans and zooms the shared view.
-  Widget _column(BuildContext context, Recording r, Role f, List<_Plot> plots, {bool across = false}) {
-    final s = r.feet[f]!;
-    Widget chart(_Plot p) => LayoutBuilder(
-          builder: (context, c) => _Gestures(
-            width: c.maxWidth - _ChartPainter.left - _ChartPainter.right,
-            view: _view,
-            cursor: _cursor,
-            clamp: _clampView,
-            child: _Chart(
-              series: s,
-              plot: p,
-              foot: f,
-              capture: r.capture,
-              strikes: [for (final m in r.strikes) if (m.foot == f) m],
-              beats: r.beats,
-              view: _view,
-              cursor: _cursor,
-              showTime: across || p == plots.last,
-            ),
-          ),
-        );
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(children: [
-          Container(
-              width: 10, height: 10, decoration: BoxDecoration(color: floorColor(f), shape: BoxShape.circle)),
-          const SizedBox(width: Space.xs),
-          Text('${footName(f)} ankle', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-        ]),
-        const SizedBox(height: Space.xs),
-        Expanded(
-          child: across
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (var i = 0; i < plots.length; i++) ...[
-                      if (i > 0) const SizedBox(width: Space.xs),
-                      Expanded(child: chart(plots[i])),
+  /// One foot's charts (tablet): down a column (side by side layout) or along
+  /// a row ([across]: left above right), filling the space.
+  Widget _column(BuildContext context, Recording r, Role f, List<_Plot> plots, {bool across = false}) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _footHeader(context, f),
+          Expanded(
+            child: across
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < plots.length; i++) ...[
+                        if (i > 0) const SizedBox(width: Space.xs),
+                        Expanded(child: _chart(r, f, plots[i], showTime: true)),
+                      ],
                     ],
-                  ],
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final p in plots)
-                      Expanded(
-                          child: Padding(padding: const EdgeInsets.only(bottom: Space.xs), child: chart(p))),
-                  ],
-                ),
-        ),
-      ],
-    );
-  }
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final p in plots)
+                        Expanded(
+                            child: Padding(
+                                padding: const EdgeInsets.only(bottom: Space.xs),
+                                child: _chart(r, f, p, showTime: p == plots.last))),
+                    ],
+                  ),
+          ),
+        ],
+      );
 
   void _stepList(BuildContext context, Recording r) {
     final theme = Theme.of(context);

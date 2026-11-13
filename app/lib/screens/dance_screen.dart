@@ -13,6 +13,7 @@ import '../models/session_kind.dart';
 import '../models/session_score.dart';
 import '../store/session_store.dart';
 import '../ui/step_legend.dart';
+import '../ui/screen_awake.dart';
 import '../ui/style.dart';
 import 'dance/dance_session.dart';
 import 'summary_screen.dart';
@@ -57,6 +58,7 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
+    ScreenAwake.on(); // no auto-lock mid-routine
     s = DanceSession(
       manager: widget.manager,
       preset: widget.preset,
@@ -132,6 +134,7 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
 
   @override
   void dispose() {
+    ScreenAwake.off();
     WidgetsBinding.instance.removeObserver(this);
     _ticker.dispose();
     s.removeListener(_onSession);
@@ -265,20 +268,24 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
                         child: Padding(
                             padding: const EdgeInsets.fromLTRB(Space.lg, Space.xs, Space.sm, Space.lg),
                             // Beside the chart only where both keep room to read.
-                            child: LayoutBuilder(
-                              builder: (context, cc) => _floor && cc.maxWidth >= 720
+                            // A phone on its side (short and narrower) shares the
+                            // room half and half.
+                            child: LayoutBuilder(builder: (context, cc) {
+                              final phone = c.maxHeight < 500;
+                              return _floor && cc.maxWidth >= (phone ? 480 : 720)
                                   ? Row(
                                       crossAxisAlignment: CrossAxisAlignment.stretch,
                                       children: [
-                                        Expanded(flex: 5, child: chart(wide: true)),
+                                        Expanded(flex: phone ? 1 : 5, child: chart(wide: true)),
                                         const SizedBox(width: Space.md),
-                                        Expanded(flex: 4, child: floor),
+                                        Expanded(flex: phone ? 1 : 4, child: floor),
                                       ],
                                     )
-                                  : chart(wide: true),
-                            ))),
+                                  : chart(wide: true);
+                            }))),
                     SizedBox(
-                      width: (c.maxWidth * 0.3).clamp(280.0, 420.0),
+                      // Narrower on a phone on its side, so the floor map fits beside the chart.
+                      width: c.maxHeight < 500 ? 230.0 : (c.maxWidth * 0.3).clamp(280.0, 420.0),
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(Space.sm, Space.xs, Space.xl, Space.lg),
                         child: Column(

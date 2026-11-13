@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:path_provider/path_provider.dart';
 
 import '../models/session_kind.dart';
 import '../models/session_score.dart';
+import 'app_dirs.dart';
 
 /// One past scored session, read back from the "score" block of its
 /// session.json. Capture sessions have no score and are not listed.
@@ -89,7 +89,7 @@ class HistoryEntry {
 /// Past sessions from the app's documents folder (sessions/<id>/session.json).
 class SessionHistory {
   static Future<List<HistoryEntry>> load({int? presetId}) async {
-    final dir = Directory('${(await getApplicationDocumentsDirectory()).path}/sessions');
+    final dir = Directory('${(await AppDirs.private()).path}/sessions');
     if (!await dir.exists()) return [];
     final out = <HistoryEntry>[];
     await for (final d in dir.list()) {

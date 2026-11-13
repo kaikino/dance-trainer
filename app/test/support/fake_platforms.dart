@@ -14,6 +14,11 @@ class FakeDocuments extends PathProviderPlatform {
   Future<String?> getApplicationDocumentsPath() async => root.path;
   @override
   Future<String?> getTemporaryPath() async => root.path;
+
+  /// iOS keeps the app's own data here (store/app_dirs.dart).
+  String get supportPath => '${root.path}/support';
+  @override
+  Future<String?> getApplicationSupportPath() async => supportPath;
 }
 
 /// A just_audio backend that is ready at once and plays silently, plus the
