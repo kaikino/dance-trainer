@@ -31,6 +31,18 @@ uint32_t dt_now_us(void)
     return NRF_TIMER4->CC[1];
 }
 
+// A spare never advertises, so the app can't connect to it by mistake. ROLE=X
+// builds are always spare; other builds are spare while `role X` is stored.
+bool dt_spare(void)
+{
+#ifdef DT_SPARE
+    return true;
+#else
+    char r = 0;
+    return storage_load("role", &r, 1) && r == 'X';
+#endif
+}
+
 dt_role_t dt_role(void)
 {
     static int cached = -1;

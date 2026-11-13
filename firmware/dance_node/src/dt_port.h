@@ -12,6 +12,7 @@ extern "C" {
 void     port_init(void);
 uint32_t dt_now_us(void);          // free-running µs counter (TIMER4), wraps at 71 min
 dt_role_t dt_role(void);           // stored role, else compile-time default
+bool dt_spare(void);               // spare/backup board: BLE off (make ROLE=X, or serial `role X`)
 void     dt_log(char level, const char *tag, const char *fmt, ...);
 
 #define DT_LOGI(tag, ...) dt_log('I', tag, __VA_ARGS__)

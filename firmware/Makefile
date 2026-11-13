@@ -8,6 +8,10 @@
 #                           The CNN is trained on simulated feet only (ml/simtrain.py)
 #                           until real recordings exist; on a simulator it never saw
 #                           it scores 39% vs the rule's 66% (12 classes), so the rule is the default.
+#   make flash ROLE=X    spare/backup board: Bluetooth off, so the app never connects
+#                        to it (IMU, serial commands and rulesdbg still work). A
+#                        normal build becomes spare with the serial command `role X`
+#                        and active again with `role L` / `role R`.
 #   make RULESDBG=1         print the rule's features per strike from boot (else `rulesdbg on`)
 #
 # A stored role (serial command `role L|R`) overrides the compile-time default,
@@ -22,6 +26,9 @@ BUILD     := build/$(ROLE)-$(CLASSIFIER)
 DEFS := -DDT_FW_MAJOR=0 -DDT_FW_MINOR=3
 ifeq ($(ROLE),R)
 DEFS += -DDT_DEFAULT_ROLE_RIGHT
+endif
+ifeq ($(ROLE),X)
+DEFS += -DDT_SPARE
 endif
 ifeq ($(CLASSIFIER),rules)
 DEFS += -DDT_CLASSIFIER_RULES

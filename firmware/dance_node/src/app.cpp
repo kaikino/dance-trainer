@@ -21,13 +21,21 @@ QueueHandle_t window_q;   // step_window_t, one per foot strike
 QueueHandle_t haptic_q;   // uint8_t pattern
 QueueHandle_t event_q;    // dt_step_event_t
 
+// Spare boards have no BLE task to consume step events; drop them.
+static void drain_task(void *)
+{
+    dt_step_event_t e;
+    for (;;) xQueueReceive(event_q, &e, portMAX_DELAY);
+}
+
 void app_setup(void)
 {
     port_init();
     delay(300);   // let USB CDC enumerate so the first log lines are visible
     dt_role_t role = dt_role();
+    const bool spare = dt_spare();
     DT_LOGI(TAG, "dance node fw %d.%d role=%s classifier=%s", DT_FW_MAJOR, DT_FW_MINOR,
-            role == DT_ROLE_LEFT ? "L" : "R", classifier_name());
+            spare ? "X (spare, BLE off)" : role == DT_ROLE_LEFT ? "L" : "R", classifier_name());
 
     sample_q = xQueueCreate(32, sizeof(imu_sample_t));
     window_q = xQueueCreate(4, sizeof(step_window_t));
@@ -41,7 +49,8 @@ void app_setup(void)
     fusion_init(role);
     judge_init();
     timesync_init();
-    ble_init(role);
+    if (spare) xTaskCreate(drain_task, "drain", 256, NULL, TASK_PRIO_NORMAL, NULL);   // no BLE to take events
+    else ble_init(role);
 
     // Stack sizes are in 32-bit words. Priorities: 4 highest; Bluefruit runs at 3.
     if (have_imu) xTaskCreate(imu_task, "imu", 512, NULL, TASK_PRIO_HIGHEST, NULL);
@@ -55,7 +64,7 @@ void app_setup(void)
 
 static void help(void)
 {
-    Serial.println("commands: status | cal | calcancel | buzz [1|2|3] | selftest | rulesdbg on|off | role L|R | reboot | help");
+    Serial.println("commands: status | cal | calcancel | buzz [1|2|3] | selftest | rulesdbg on|off | role L|R|X | reboot | help");
 }
 
 static void handle(char *line)
@@ -64,8 +73,8 @@ static void handle(char *line)
     if (arg) *arg++ = 0;
     if (!strcmp(line, "status")) {
         Serial.printf("role=%s mode=%d battery=%u mV (%u%%) ble=%s calibrated=%d forward=%d moved=%d t=%lu us\n",
-                      dt_role() == DT_ROLE_LEFT ? "L" : "R", (int)judge_mode(), battery_mv(), battery_pct(),
-                      ble_connected() ? "connected" : "advertising", (int)fusion_is_calibrated(),
+                      dt_spare() ? "X" : dt_role() == DT_ROLE_LEFT ? "L" : "R", (int)judge_mode(), battery_mv(), battery_pct(),
+                      dt_spare() ? "off (spare)" : ble_connected() ? "connected" : "advertising", (int)fusion_is_calibrated(),
                       (int)fusion_has_forward(), (int)fusion_board_moved(),
                       (unsigned long)dt_now_us());
         float b[3];
@@ -83,7 +92,13 @@ static void handle(char *line)
     } else if (!strcmp(line, "rulesdbg")) {
         if (arg) rules_debug_set(!strcmp(arg, "on") || !strcmp(arg, "1"));
         Serial.printf("rulesdbg %s\n", rules_debug() ? "on" : "off");
-    } else if (!strcmp(line, "role") && arg && (arg[0] == 'L' || arg[0] == 'R')) {
+    } else if (!strcmp(line, "role") && arg && (arg[0] == 'L' || arg[0] == 'R' || arg[0] == 'X')) {
+#ifdef DT_SPARE
+        if (arg[0] != 'X') {
+            Serial.println("this is a spare build (ROLE=X): reflash with make flash ROLE=L or ROLE=R");
+            return;
+        }
+#endif
         storage_save("role", arg, 1);
         Serial.printf("role %c stored; rebooting\n", arg[0]);
         delay(100);
