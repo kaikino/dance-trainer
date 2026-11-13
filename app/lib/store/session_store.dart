@@ -259,31 +259,28 @@ class SessionRecorder {
           if (File('${dir.path}/$name').existsSync()) File('${dir.path}/$name'),
       ];
 
-  /// Where [saveToDevice] puts this session: Documents/DanceTrainer/<id> on
-  /// the device's shared storage, which the Files app and a USB cable can
-  /// reach and which survives reinstalling the app (the app's own folder,
-  /// where every session is recorded, does neither).
-  Future<Directory> savedDir() async => Directory('${await sharedRoot()}/$sessionId');
+  /// Where this run was saved on shared storage, once [saveToDevice] ran.
+  Directory? savedTo;
 
-  bool _saved = false;
-  Future<bool> isSaved() async {
-    if (_saved) return true;
-    try {
-      return await (await savedDir()).exists();
-    } catch (_) {
-      return false; // no shared storage (tests, desktop)
-    }
-  }
-
-  /// Copies the session's files to [savedDir]. Returns the folder.
-  Future<Directory> saveToDevice() async {
-    final out = await savedDir();
+  /// Copies the run's files to <[into]>/<sessionId> on shared storage: a
+  /// training session's folder, else Documents/DanceTrainer/runs. The Files
+  /// app and a USB cable reach it and it survives reinstalling the app (the
+  /// app's own folder, where every run is recorded, does neither).
+  Future<Directory> saveToDevice({Directory? into}) async {
+    final out = Directory('${into?.path ?? '${await sharedRoot()}/runs'}/$sessionId');
     await out.create(recursive: true);
     for (final f in files) {
       await f.copy('${out.path}/${f.uri.pathSegments.last}');
     }
-    _saved = true;
-    return out;
+    return savedTo = out;
+  }
+
+  /// Throws the run away: the saved copy and the app's own copy.
+  Future<void> deleteRun() async {
+    for (final d in [savedTo, dir]) {
+      if (d != null && await d.exists()) await d.delete(recursive: true);
+    }
+    savedTo = null;
   }
 
   /// Documents/DanceTrainer on shared storage. Android 11+ lets an app create

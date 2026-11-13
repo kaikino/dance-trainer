@@ -82,7 +82,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
   /// Calibrated well enough to judge directions (old firmware cannot say: assume so).
   static bool _calibrated(NodeClient n) => !calStateOf(n.status).needsCalibration;
 
-  void _openRoutines() => Navigator.push(context, MaterialPageRoute(builder: (_) => PresetScreen(manager: m)));
+  void _openRoutines() => Navigator.push(context, PresetScreen.route(m));
 
   @override
   Widget build(BuildContext context) {

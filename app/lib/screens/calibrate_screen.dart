@@ -280,7 +280,7 @@ class _CalibrateScreenState extends State<CalibrateScreen> {
               ? () => Navigator.pop(context)
               : () => Navigator.pushReplacement(
                     context,
-                    MaterialPageRoute(builder: (_) => PresetScreen(manager: widget.manager)),
+                    PresetScreen.route(widget.manager),
                   ),
           icon: const Icon(Icons.queue_music_rounded),
           label: Text(widget.returnToRoutine ? 'Back to the routine' : 'Choose a routine',

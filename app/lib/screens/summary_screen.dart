@@ -7,6 +7,7 @@ import '../models/preset.dart';
 import '../models/session_score.dart';
 import '../store/history.dart';
 import '../store/session_store.dart';
+import '../store/training_session.dart';
 import '../ui/style.dart';
 import 'dance_screen.dart';
 import 'preset_screen.dart';
@@ -71,6 +72,10 @@ class _SummaryScreenState extends State<SummaryScreen> {
 
   /// null while saving; true once this run is in Documents/DanceTrainer.
   bool? _saved = false;
+  bool _discarded = false;
+
+  /// Recordings for training are kept by default, in the training session's folder.
+  bool get _autoSave => kind == SessionKind.capture;
 
   NodeManager get manager => widget.manager;
   Preset get preset => widget.preset;
@@ -83,9 +88,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
   void initState() {
     super.initState();
     if (kind != SessionKind.capture) _loadHistory();
-    recorder.isSaved().then((v) {
-      if (mounted && v) setState(() => _saved = true);
-    });
+    if (_autoSave) _save(quiet: true);
   }
 
   Future<void> _loadHistory() async {
@@ -107,20 +110,51 @@ class _SummaryScreenState extends State<SummaryScreen> {
   /// Keeps this run: copies its files to Documents/DanceTrainer/<session> on
   /// the tablet. (Every run is recorded in the app's own folder anyway; that
   /// one is not reachable from a computer and goes with the app.)
-  Future<void> _save() async {
+  Future<void> _save({bool quiet = false}) async {
     setState(() => _saved = null);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await recorder.saveToDevice();
+      var training = TrainingSession.current.value;
+      if (_autoSave) training ??= await TrainingSession.start(dancer);
+      await recorder.saveToDevice(into: _autoSave ? training!.dir : null);
       if (!mounted) return;
       setState(() => _saved = true);
-      messenger.showSnackBar(SnackBar(content: Text('Saved to Documents/DanceTrainer/${recorder.sessionId}')));
+      if (!quiet) messenger.showSnackBar(SnackBar(content: Text('Saved to ${_savedPath()}')));
     } catch (e) {
       if (!mounted) return;
       setState(() => _saved = false);
       messenger.showSnackBar(SnackBar(content: Text('Could not save: $e')));
     }
   }
+
+  /// The saved folder, from Documents on.
+  String _savedPath() {
+    final p = recorder.savedTo?.path ?? '';
+    final i = p.indexOf('/Documents/');
+    return i < 0 ? p : p.substring(i + 1);
+  }
+
+  Future<void> _discard() async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discard this run?'),
+        content: const Text('Its recording is deleted from the tablet and left out of the training session.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Discard')),
+        ],
+      ),
+    );
+    if (yes != true) return;
+    await recorder.deleteRun();
+    if (mounted) setState(() => _discarded = true);
+  }
+
+  /// After a recording, back to the routine screen (the training session goes
+  /// on); otherwise home.
+  void _done() => Navigator.popUntil(
+      context, (r) => r.isFirst || (_autoSave && r.settings.name == PresetScreen.routeName));
 
   Future<void> _export() => Share.shareXFiles(
         [for (final f in recorder.files) XFile(f.path)],
@@ -146,17 +180,26 @@ class _SummaryScreenState extends State<SummaryScreen> {
             icon: const Icon(Icons.replay_rounded),
             label: const Text('Try again'),
           ),
-          OutlinedButton.icon(
-            onPressed: _saved == false ? _save : null,
-            icon: switch (_saved) {
-              null => const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-              true => const Icon(Icons.check_rounded),
-              false => const Icon(Icons.save_alt_rounded),
-            },
-            label: Text(_saved == true ? 'Saved' : 'Save'),
-          ),
+          if (_autoSave)
+            // Kept by default; thrown away only on purpose.
+            OutlinedButton.icon(
+              onPressed: _discarded || _saved != true ? null : _discard,
+              style: OutlinedButton.styleFrom(foregroundColor: theme.colorScheme.error),
+              icon: Icon(_discarded ? Icons.delete_forever_rounded : Icons.delete_outline_rounded),
+              label: Text(_discarded ? 'Discarded' : 'Discard'),
+            )
+          else
+            OutlinedButton.icon(
+              onPressed: _saved == false ? () => _save() : null,
+              icon: switch (_saved) {
+                null => const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                true => const Icon(Icons.check_rounded),
+                false => const Icon(Icons.save_alt_rounded),
+              },
+              label: Text(_saved == true ? 'Saved' : 'Save'),
+            ),
           OutlinedButton(
-            onPressed: () => Navigator.popUntil(context, (r) => r.isFirst),
+            onPressed: _done,
             child: const Text('Done'),
           ),
         ],
@@ -400,7 +443,16 @@ class _SummaryScreenState extends State<SummaryScreen> {
                   _Fact(Icons.sensors_rounded, '${recorder.sampleCounts[r] ?? 0}',
                       '${footName(r).toLowerCase()} samples'),
                 const SizedBox(height: Space.md),
-                Text('Labels were assigned from the schedule; export the files and run ml/label.py to check them.',
+                Text(
+                    switch ((_discarded, _saved)) {
+                      (true, _) => 'Discarded: this run is not kept.',
+                      (_, true) => 'Saved to ${_savedPath()}.',
+                      (_, null) => 'Saving…',
+                      _ => 'Not saved: no shared storage on this device. Share the files instead.',
+                    },
+                    style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+                const SizedBox(height: Space.xs),
+                Text('Labels were assigned from the schedule; run ml/label.py on the folder to check them.',
                     style: theme.textTheme.bodyLarge),
               ],
             ),

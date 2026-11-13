@@ -5,6 +5,7 @@ import '../ble/node_client.dart';
 import '../chart/floor_map.dart';
 import '../models/preset.dart';
 import '../models/session_kind.dart';
+import '../store/training_session.dart';
 import '../store/history.dart';
 import '../store/settings.dart';
 import '../ui/step_legend.dart';
@@ -19,6 +20,11 @@ export '../models/session_kind.dart';
 class PresetScreen extends StatefulWidget {
   const PresetScreen({super.key, required this.manager});
   final NodeManager manager;
+
+  /// Route name, so a recording's summary can come back here.
+  static const routeName = '/routine';
+  static MaterialPageRoute<void> route(NodeManager manager) =>
+      MaterialPageRoute(settings: const RouteSettings(name: routeName), builder: (_) => PresetScreen(manager: manager));
 
   @override
   State<PresetScreen> createState() => _PresetScreenState();
@@ -51,12 +57,38 @@ class _PresetScreenState extends State<PresetScreen> {
     super.initState();
     m.addListener(_onNodes);
     _load();
+    // Coming in with recording mode on starts a new training session.
+    if (_kind == SessionKind.capture) _startTraining();
+  }
+
+  Future<void> _startTraining() async {
+    try {
+      await TrainingSession.start(_dancerName);
+    } catch (e) {
+      debugPrint('no training session: $e'); // no shared storage (tests, desktop)
+    }
+    if (mounted) setState(() {});
+  }
+
+  String get _dancerName => _dancer.text.trim().isEmpty ? 'dancer' : _dancer.text.trim();
+
+  /// Switching mode: into recording opens a new training session, out of it closes it.
+  void _setKind(SessionKind k) {
+    if (k == _kind) return;
+    if (k == SessionKind.capture) {
+      _startTraining();
+    } else if (_kind == SessionKind.capture) {
+      TrainingSession.close();
+    }
+    setState(() => _kind = k);
+    _remember();
   }
 
   @override
   void dispose() {
     m.removeListener(_onNodes);
     _dancer.dispose();
+    TrainingSession.close();
     super.dispose();
   }
 
@@ -106,7 +138,7 @@ class _PresetScreenState extends State<PresetScreen> {
           manager: m,
           preset: _selected!.withTempo(_tempo),
           kind: _kind,
-          dancer: _dancer.text.trim().isEmpty ? 'dancer' : _dancer.text.trim(),
+          dancer: _dancerName,
           demo: demo,
         ),
       ),
@@ -175,6 +207,7 @@ class _PresetScreenState extends State<PresetScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         ..._warnings(context),
+                        if (_kind == SessionKind.capture) _training(context),
                         const SectionHeader('Routine'),
                         _routines(presets, wide),
                         if (_selected != null) ...[
@@ -224,6 +257,31 @@ class _PresetScreenState extends State<PresetScreen> {
                 ],
               );
             }),
+    );
+  }
+
+  /// Recording mode: the training session every recorded run is saved to.
+  Widget _training(BuildContext context) {
+    final theme = Theme.of(context);
+    return ValueListenableBuilder(
+      valueListenable: TrainingSession.current,
+      builder: (context, t, _) => Padding(
+        padding: const EdgeInsets.only(top: Space.lg),
+        child: Card(
+          color: theme.colorScheme.secondaryContainer,
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.xs),
+            leading: Icon(Icons.fiber_manual_record_rounded, color: theme.colorScheme.error),
+            title: Text(t == null ? 'Starting a training session…' : 'Training session · ${t.runs} runs saved',
+                style: theme.textTheme.titleMedium),
+            subtitle: Text(t == null
+                ? ''
+                : 'Every recorded run is saved to Documents/DanceTrainer/${t.id}. '
+                    'Discard a bad run on its summary.'),
+            trailing: OutlinedButton(onPressed: _startTraining, child: const Text('New session')),
+          ),
+        ),
+      ),
     );
   }
 
@@ -319,8 +377,7 @@ class _PresetScreenState extends State<PresetScreen> {
             emptySelectionAllowed: true,
             showSelectedIcon: false,
             onSelectionChanged: (s) {
-              if (s.isNotEmpty) setState(() => _kind = s.first);
-              _remember();
+              if (s.isNotEmpty) _setKind(s.first);
             },
           ),
         ),
@@ -421,10 +478,7 @@ class _PresetScreenState extends State<PresetScreen> {
           children: [
             RadioGroup<SessionKind>(
               groupValue: _kind,
-              onChanged: (v) {
-                setState(() => _kind = v!);
-                _remember();
-              },
+              onChanged: (v) => _setKind(v!),
               child: RadioListTile<SessionKind>(
                 contentPadding: EdgeInsets.zero,
                 value: SessionKind.capture,
