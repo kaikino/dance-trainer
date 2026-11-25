@@ -32,6 +32,7 @@
 #define RULE_UPRIGHT_SIN2_X100  33      // sin²(35°)·100        start ZUPT: shank pitch < 35°
 #define RULE_ZUPT_DZ            1226    // 3.5 cm               start ZUPT at landing height
 #define RULE_ZUPT_DZ_SHORT      350     // 1.0 cm               ... if only 3 samples are quiet
+#define RULE_MIN_SWING          30      // 290 ms               start ZUPT searched at least this long before the landing
 #define RULE_MOVE               2101    // 6 cm                 below: in place
 #define RULE_SURE_STILL         1401    // 4 cm                 in place is sure below this
 #define RULE_SURE_MOVE          3152    // 9 cm                 a step is sure above this
@@ -199,6 +200,7 @@ dt_step_class_t rules_classify_ex(const step_window_t *w, uint16_t vocab, uint8_
     int k = kpk;
     if (k > n - QUIET_HW - 1) k = n - QUIET_HW - 1;
     if (k > e - 1) k = e - 1;
+    if (k > imp - RULE_MIN_SWING) k = imp - RULE_MIN_SWING;   // not a low glide just before the landing
     while (k >= QUIET_HW) {
         // 5 quiet samples, or 3 (a short stance between quick steps) with a tighter height check
         bool q5 = all_quiet(quiet, k), q3 = quiet3(quiet, k);

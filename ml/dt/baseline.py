@@ -15,7 +15,11 @@ Pedestrian-dead-reckoning on one int8 window (dt/windows.py), in physical units:
      samples, or 3 with |dz| < 1 cm: a short stance between quick steps) with the
      shank upright (pitch < 35°), AND from which the foot ends at the same height
      (|dz| < 3.5 cm). A pause at peak lift or a kick apex is quiet too, but the
-     foot then drops by the lift height, so it is skipped.
+     foot then drops by the lift height, so it is skipped. The search starts at
+     least 0.29 s (30 samples) before the landing: late in a step the foot can
+     glide low and flat with the shank still, which passes every check above
+     while the foot is still moving; integrating from there sees only the
+     braking, and a step forward reads as a small step back.
   4. Integrate foot-frame accel from start to end with zero velocity at both
      ends (linear velocity de-drift): constant accel bias and leaked gravity
      (tilt error) cancel exactly, whatever the swing length or tempo. The sensor
@@ -68,6 +72,7 @@ PHYS = dict(
                             # ZUPTs, so the sensor moves at omega x r there, not 0
     swing_dps=100.0,        # shank rotation that marks the swing (60 if none reaches it)
     swing_dps_low=60.0,
+    min_swing_ms=290.0,     # start ZUPT: searched for at least this long before the landing
     quiet_dps=40.0,         # start ZUPT: |gyro| below this for 2*QUIET_HW+1 samples
     upright_pitch_deg=35.0,
     zupt_dz_cm=3.5,         # start ZUPT must be at landing height
@@ -121,6 +126,7 @@ def thresholds(p: dict | None = None) -> dict:
         SWING_G2=int(round(w(p["swing_dps"]) ** 2)),
         SWING_LOW_G2=int(round(w(p["swing_dps_low"]) ** 2)),
         QUIET_G2=int(round(w(p["quiet_dps"]) ** 2)),
+        MIN_SWING=int(round(p["min_swing_ms"] * ODR_HZ / 1000)),
         # lever: dx += (gy_s3 + gy_e3) * m * LEVER_X1000 / 3000 (3-sample gyro sums at both ZUPTs)
         LEVER_X1000=int(round(1000 * GYR_LSB_DPS * math.pi / 180 * p["lever_cm"] / 2 / ODR_HZ / _cm_per_d2())),
         UPRIGHT_SIN2_X100=int(round(100 * math.sin(math.radians(p["upright_pitch_deg"])) ** 2)),
@@ -220,7 +226,7 @@ def features(w: np.ndarray, T: dict = T) -> dict:
     quiet = [g < T["QUIET_G2"] for g in gm2]
     hw = QUIET_HW
     s = -1; best = -1; best_dz = 0; how = 0      # how: 0 ZUPT, 1 nearest height, 2 quietest
-    k = min(kpk, n - hw - 1, e - 1)
+    k = min(kpk, n - hw - 1, e - 1, imp - T["MIN_SWING"])   # not a glide just before the landing
     while k >= hw:
         q5 = all(quiet[k - hw:k + hw + 1])
         q3 = quiet[k - 1] and quiet[k] and quiet[k + 1]     # short stance between quick steps
