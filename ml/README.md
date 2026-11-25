@@ -19,6 +19,7 @@ pip install -r requirements.txt
 | 6 | `export.py runs/model.keras runs/windows.npz` | `firmware/dance_node/src/model_weights.h` (float weights for `cnn.c`) and selftest vectors |
 | 5x | `features.py runs/windows.npz -o runs/features.csv` | the 8 rule features per step (`rules_features_t`) |
 | 5x | `train_xgb.py runs/features.csv --windows runs/windows.npz -o runs/xgb` | XGBoost on those features + foot: leave-one-session-out vs the rules, `runs/xgb/model.json` |
+| 6x | `export_xgb.py runs/xgb` | `firmware/dance_node/src/xgb_model.h` for `xgb.c` (`make CLASSIFIER=xgb`); `tests/test_xgb_parity.py` checks the C against xgboost |
 
 `dt/` is the shared package: `protocol.py` (enums, must match `dt_protocol.h`),
 `windows.py` (window geometry — must match `stepdet.h`), `baseline.py` (must

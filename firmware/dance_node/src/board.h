@@ -17,5 +17,5 @@
 #define DT_FW_MAJOR 0
 #endif
 #ifndef DT_FW_MINOR
-#define DT_FW_MINOR 3
+#define DT_FW_MINOR 4  // (the Makefile passes its own; keep the two the same)
 #endif

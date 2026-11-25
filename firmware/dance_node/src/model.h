@@ -7,8 +7,9 @@
 extern "C" {
 #endif
 
-// Single entry point used by the judge: the CNN from ml/train.py (cnn.c), or
-// the rule classifier when built with -DDT_CLASSIFIER_RULES.
+// Single entry point used by the judge: the rule classifier (-DDT_CLASSIFIER_RULES,
+// the default build), the XGBoost trees (-DDT_CLASSIFIER_XGB, xgb.c) or the CNN
+// from ml/train.py (cnn.c).
 // vocab: the routine's classes as a bit mask (0 = any); see rules_classify().
 dt_step_class_t classify(const step_window_t *w, uint16_t vocab, uint8_t *confidence);
 const char *classifier_name(void);

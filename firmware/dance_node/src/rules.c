@@ -60,9 +60,12 @@
 #define FALLBACK_BACK   60
 #define ROLL_SAMPLES    8
 
-// Unit conversions for the debug features only (ODR 104 Hz, 8 g and 2000 dps scales).
-#define CM_PER_D2       0.002855684783115128f
-#define DEG_PER_SUM     0.15142337976983647f
+// Unit conversions for rules_features_t (ODR 104 Hz, 8 g and 2000 dps scales).
+// Double, then rounded to float once, exactly as dt/baseline.py computes them:
+// the XGBoost model (xgb.c) splits on these, at thresholds that are training
+// values, so a float computed differently in the last bit can take another branch.
+#define CM_PER_D2       0.002855684783115128
+#define DEG_PER_SUM     0.15142337976983647
 
 // Twice the double sum of channel c over samples k+1..e, velocity de-drifted to 0 at e.
 static int64_t ddsum2(const step_window_t *w, int c, int k, int e)
@@ -254,12 +257,14 @@ dt_step_class_t rules_classify_ex(const step_window_t *w, uint16_t vocab, uint8_
 
     if (f) {
         f->imp = imp; f->e = e; f->s = s; f->how = how; f->how_e = how_e;
-        f->dx_cm = X * CM_PER_D2; f->dy_cm = Y * CM_PER_D2; f->dz_cm = Z * CM_PER_D2;
-        f->zmax_cm = m ? zmax_2m / (float)m * CM_PER_D2 : 0;
-        f->pitch_min_deg = pmin * DEG_PER_SUM;
-        f->pitch_range_deg = prange * DEG_PER_SUM;
-        f->roll_deg = az_s ? atan2f((float)ay_s, (float)az_s) * 57.29578f : 0;
-        f->swing_ms = m * (1000.0f / 104.0f);
+        f->dx_cm = (float)((double)X * CM_PER_D2);
+        f->dy_cm = (float)((double)Y * CM_PER_D2);
+        f->dz_cm = (float)((double)Z * CM_PER_D2);
+        f->zmax_cm = m ? (float)((double)zmax_2m / (double)m * CM_PER_D2) : 0;
+        f->pitch_min_deg = (float)((double)pmin * DEG_PER_SUM);
+        f->pitch_range_deg = (float)((double)prange * DEG_PER_SUM);
+        f->roll_deg = az_s ? (float)(atan2((double)ay_s, (double)az_s) * (180.0 / 3.141592653589793)) : 0;
+        f->swing_ms = (float)((double)(m * 1000) / 104.0);
     }
 
     // 5. decide. Confidence = 128 + smallest margin to a boundary, SURE (32) = 160

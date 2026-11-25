@@ -4,6 +4,7 @@
 #   make ROLE=R          build the right node
 #   make flash PORT=/dev/cu.usbmodemXXXX [ROLE=R]
 #   make monitor PORT=/dev/cu.usbmodemXXXX
+#   make CLASSIFIER=xgb     use the XGBoost trees (ml/export_xgb.py → xgb_model.h) instead of the rule classifier
 #   make CLASSIFIER=cnn     use the CNN instead of the rule classifier (default: rules)
 #                           The CNN is trained on simulated feet only (ml/simtrain.py)
 #                           until real recordings exist; on a simulator it never saw
@@ -23,7 +24,7 @@ CLASSIFIER?= rules
 PORT      ?=
 BUILD     := build/$(ROLE)-$(CLASSIFIER)
 
-DEFS := -DDT_FW_MAJOR=0 -DDT_FW_MINOR=3
+DEFS := -DDT_FW_MAJOR=0 -DDT_FW_MINOR=4
 ifeq ($(ROLE),R)
 DEFS += -DDT_DEFAULT_ROLE_RIGHT
 endif
@@ -32,6 +33,9 @@ DEFS += -DDT_SPARE
 endif
 ifeq ($(CLASSIFIER),rules)
 DEFS += -DDT_CLASSIFIER_RULES
+endif
+ifeq ($(CLASSIFIER),xgb)
+DEFS += -DDT_CLASSIFIER_XGB
 endif
 ifeq ($(RULESDBG),1)
 DEFS += -DDT_RULES_DEBUG

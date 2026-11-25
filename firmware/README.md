@@ -11,6 +11,7 @@ make setup                       # once: arduino-cli core for Seeeduino:nrf52
 make                             # left node, rule classifier → build/L-rules/
 make ROLE=R                      # right node
 make ROLE=X                      # spare board: Bluetooth off, the app never connects to it
+make CLASSIFIER=xgb              # XGBoost trees on the rule features (ml/export_xgb.py → xgb_model.h)
 make CLASSIFIER=cnn              # the CNN instead (trained on simulated data only)
 make flash PORT=/dev/cu.usbmodem1101 ROLE=R
 make monitor PORT=/dev/cu.usbmodem1101
@@ -64,7 +65,8 @@ strike candidate, so the node's own buzz cannot be mistaken for a step.
 - `fusion.c`, `madgwick.c` — 6-axis AHRS, gravity alignment and gyro bias from calibration.
 - `stepdet.c` — cuts the 140×9 int8 window (100 samples before the strike, 40 after, so the foot has settled) when `swingdet.c` (strike detector: one strike per step, at the landing, emitted 40 samples later) fires; `rules.c` — rule classifier (dead reckoning with zero-velocity updates, see `ml/dt/baseline.py`). Serial `rulesdbg on` prints its features per strike (`docs/bench-check.md`).
 - `cnn.c` — float inference for the `ml/train.py` network; `model_weights.h` and `selftest_vectors.h` are written by `ml/export.py`.
-- `model.c` — classifier dispatch (`-DDT_CLASSIFIER_RULES` selects the rules) and `selftest`.
+- `xgb.c` — XGBoost tree evaluator over `rules.c`'s step features plus the foot; tables in `xgb_model.h` (flash, ~27 KB), written by `ml/export_xgb.py`.
+- `model.c` — classifier dispatch (`-DDT_CLASSIFIER_RULES` the rules, `-DDT_CLASSIFIER_XGB` the trees) and `selftest`.
 - `judge.c` — schedule matching and verdicts; missed-step tick.
 - `haptic.cpp` — Grove Vibration Motor patterns on one GPIO, plus the blanking window.
 - `ble.cpp` — Bluefruit GATT service, advertising as `DT-L` / `DT-R`, 15 ms connection interval, MTU 247.

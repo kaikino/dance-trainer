@@ -1,6 +1,7 @@
 #include "model.h"
 #include "cnn.h"
 #include "rules.h"
+#include "xgb.h"
 #include "dt_port.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,8 +49,10 @@ static void rules_print(const step_window_t *w, uint16_t vocab, dt_step_class_t 
 
 dt_step_class_t classify(const step_window_t *w, uint16_t vocab, uint8_t *confidence)
 {
-#ifdef DT_CLASSIFIER_RULES
+#if defined(DT_CLASSIFIER_RULES)
     dt_step_class_t c = rules_classify(w, vocab, confidence);
+#elif defined(DT_CLASSIFIER_XGB)
+    dt_step_class_t c = xgb_classify(w, dt_role() == DT_ROLE_RIGHT, vocab, confidence, NULL);
 #else
     uint32_t us;
     dt_step_class_t c = cnn_classify(w->x, vocab, confidence, &us);
@@ -60,8 +63,10 @@ dt_step_class_t classify(const step_window_t *w, uint16_t vocab, uint8_t *confid
 
 const char *classifier_name(void)
 {
-#ifdef DT_CLASSIFIER_RULES
+#if defined(DT_CLASSIFIER_RULES)
     return "rules";
+#elif defined(DT_CLASSIFIER_XGB)
+    return "xgb";
 #else
     return "cnn";
 #endif
