@@ -18,9 +18,10 @@ abstract final class Space {
   static const double column = 720;
 }
 
-/// Corner radii.
+/// Corner radii: small, so panels and buttons read as cut, not pillowed.
+/// [full] is only for dots.
 abstract final class Radii {
-  static const double sm = 8, md = 16, lg = 24, full = 999;
+  static const double sm = 4, md = 6, lg = 8, full = 999;
   static const BorderRadius smAll = BorderRadius.all(Radius.circular(sm));
   static const BorderRadius mdAll = BorderRadius.all(Radius.circular(md));
   static const BorderRadius lgAll = BorderRadius.all(Radius.circular(lg));
@@ -43,40 +44,50 @@ abstract final class Motion {
   static const Duration fade = Duration(milliseconds: 200);
 }
 
-/// The type scale, as roles. Weights are 400, 600 and 800 only.
+/// The type scale, as roles. Two bundled faces: Oswald (condensed, for
+/// headings and big numbers) and Work Sans (everything else).
 ///
-/// | role      | style          | weight |
-/// | display   | displaySmall   | 800    | score, count-in
-/// | heading   | headlineSmall  | 800    | screen and card headlines
-/// | cardTitle | titleMedium    | 600    |
-/// | body      | bodyLarge      | 400    |
-/// | label     | labelLarge     | 600    | pills, chips, small labels
-/// | overline  | labelLarge     | 600, tracking 1.4, upper case | section headers
-/// | button    | titleMedium    | 600, 16 sp |
+/// | role      | style          | face, weight |
+/// | display   | displaySmall   | Oswald 600   | score, count-in
+/// | heading   | headlineSmall  | Oswald 600   | screen and card headlines
+/// | (app bar) | titleLarge     | Oswald 600   |
+/// | cardTitle | titleMedium    | Work Sans 600 |
+/// | body      | bodyLarge      | Work Sans 400 |
+/// | label     | labelLarge     | Work Sans 500 | chips, small labels
+/// | overline  | labelLarge     | Work Sans 600, tracking 1.4, upper case | section headers
+/// | button    | titleMedium    | Work Sans 600, 16 sp |
 abstract final class AppType {
-  static const regular = FontWeight.w400, strong = FontWeight.w600, heavy = FontWeight.w800;
+  /// Headings and big numbers.
+  static const display = 'Oswald';
+
+  /// Everything else, and text drawn by the charts.
+  static const family = 'Work Sans';
+  static const regular = FontWeight.w400, medium = FontWeight.w500, strong = FontWeight.w600, heavy = FontWeight.w600;
 
   /// [base] with the scale's weights applied; the theme uses this.
-  static TextTheme apply(TextTheme base) => base.copyWith(
-        displayLarge: base.displayLarge?.copyWith(fontWeight: heavy),
-        displayMedium: base.displayMedium?.copyWith(fontWeight: heavy),
-        displaySmall: base.displaySmall?.copyWith(fontWeight: heavy),
-        headlineLarge: base.headlineLarge?.copyWith(fontWeight: heavy),
-        headlineMedium: base.headlineMedium?.copyWith(fontWeight: heavy),
-        headlineSmall: base.headlineSmall?.copyWith(fontWeight: heavy),
-        titleLarge: base.titleLarge?.copyWith(fontWeight: strong),
-        titleMedium: base.titleMedium?.copyWith(fontWeight: strong),
-        titleSmall: base.titleSmall?.copyWith(fontWeight: strong),
-        bodyLarge: base.bodyLarge?.copyWith(fontWeight: regular),
-        bodyMedium: base.bodyMedium?.copyWith(fontWeight: regular),
-        bodySmall: base.bodySmall?.copyWith(fontWeight: regular),
-        labelLarge: base.labelLarge?.copyWith(fontWeight: strong),
-        labelMedium: base.labelMedium?.copyWith(fontWeight: strong),
-        labelSmall: base.labelSmall?.copyWith(fontWeight: strong),
-      );
+  static TextTheme apply(TextTheme base) {
+    TextStyle? head(TextStyle? s) => s?.copyWith(fontFamily: display, fontWeight: heavy, letterSpacing: 0.2);
+    return base.copyWith(
+      displayLarge: head(base.displayLarge),
+      displayMedium: head(base.displayMedium),
+      displaySmall: head(base.displaySmall),
+      headlineLarge: head(base.headlineLarge),
+      headlineMedium: head(base.headlineMedium),
+      headlineSmall: head(base.headlineSmall),
+      titleLarge: head(base.titleLarge),
+      titleMedium: base.titleMedium?.copyWith(fontWeight: strong),
+      titleSmall: base.titleSmall?.copyWith(fontWeight: strong),
+      bodyLarge: base.bodyLarge?.copyWith(fontWeight: regular),
+      bodyMedium: base.bodyMedium?.copyWith(fontWeight: regular),
+      bodySmall: base.bodySmall?.copyWith(fontWeight: regular),
+      labelLarge: base.labelLarge?.copyWith(fontWeight: medium),
+      labelMedium: base.labelMedium?.copyWith(fontWeight: medium),
+      labelSmall: base.labelSmall?.copyWith(fontWeight: medium),
+    );
+  }
 
-  /// Buttons: titleMedium, 16 sp, semi-bold.
-  static TextStyle button(TextTheme t) => t.titleMedium!.copyWith(fontSize: 16, fontWeight: strong);
+  /// Buttons: titleMedium, 16 sp, bold.
+  static TextStyle button(TextTheme t) => t.titleMedium!.copyWith(fontSize: 16, fontWeight: strong, letterSpacing: 0.2);
 }
 
 /// The type roles by name: `Theme.of(context).textTheme.heading`.
@@ -87,6 +98,34 @@ extension TypeRoles on TextTheme {
   TextStyle get body => bodyLarge!;
   TextStyle get label => labelLarge!;
   TextStyle get overline => labelLarge!.copyWith(fontWeight: AppType.strong, letterSpacing: 1.4);
+}
+
+/// The palette, after a dance studio: a matte charcoal floor, flat grey
+/// panels, and one tape colour (the bright mark dancers put on the floor)
+/// for everything the app wants you to press or look at. Pink and blue are
+/// only ever the left and right foot; the verdict colours (style.dart) only
+/// ever mean how a step was judged.
+abstract final class Stage {
+  /// Surfaces, from the deepest up: one warm grey family, no tint.
+  static const night = Color(0xFF0E0D0C);
+  static const bg = Color(0xFF141312);
+  static const panel = Color(0xFF1D1C1A);
+  static const panelHigh = Color(0xFF272523);
+  static const line = Color(0xFF35322E);
+
+  /// Text on those surfaces.
+  static const ink = Color(0xFFF2EFE9);
+  static const muted = Color(0xFFA6A097);
+
+  /// The one accent: buttons, scores, pending steps, the selected thing.
+  static const tape = Color(0xFFD4F04C);
+
+  /// Dark text on [tape].
+  static const onTape = Color(0xFF151510);
+
+  /// The feet.
+  static const pink = Color(0xFFF472B6);
+  static const blue = Color(0xFF38BDF8);
 }
 
 /// Status (a node calibrated or not, a reconnect, progress), kept apart from

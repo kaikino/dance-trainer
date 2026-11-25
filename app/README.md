@@ -31,12 +31,16 @@ lib/
 │   ├── protocol.dart         wire structs + enums (mirror of docs/ble-protocol.md)
 │   └── node_client.dart      one NodeClient per ankle; NodeManager holds both
 ├── models/preset.dart        presets/*.json → Preset, and → per-node schedule bytes
-├── audio/beat_clock.dart     music or generated metronome; beat clock from player position
+├── audio/beat_clock.dart     music or generated track; beat clock from player position
+├── audio/song_synth.dart     each routine's backing track (and song-select preview), made on the device
+├── ui/tokens.dart            the theme: charcoal + one accent, Oswald/Work Sans type scale, small radii
+├── ui/song_carousel.dart     routine select: centre card large with its floor map, neighbours to the sides
+├── ui/run_timeline.dart      summary: accuracy over the run and every step's timing
 ├── store/session_store.dart  records a session folder in docs/data-format.md layout
 ├── chart/step_chart.dart     two-lane scrolling footprint chart
 └── screens/
     ├── connect_screen.dart   scan, calibrate (still + slide), sync clock, buzz test
-    ├── preset_screen.dart    routine, tempo, Capture / Performance / Practice, dancer name
+    ├── preset_screen.dart    song select (swipe; the music follows), tempo, mode, dancer name
     ├── dance_screen.dart     count-in, music, live chart with verdicts; Practice pause+rewind
     └── summary_screen.dart   accuracy, timing, errors by foot and step; export files
 ```

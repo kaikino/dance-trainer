@@ -11,7 +11,6 @@ import '../chart/step_chart.dart';
 import '../models/preset.dart';
 import '../models/session_kind.dart';
 import '../models/session_score.dart';
-import '../store/session_store.dart';
 import '../ui/step_legend.dart';
 import '../ui/screen_awake.dart';
 import '../ui/style.dart';
@@ -212,45 +211,30 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
             ),
           ],
         );
-    // Practice coaching sits beside the chart (landscape) or under it
-    // (portrait), never over the steps coming up.
-    final coaching = hold != null && hold.coaching ? _holdCard(theme, fill: true) : null;
-    // Hidden (its room kept, so the chart does not jump) while the paused or
-    // failed card offers End itself.
+    // Practice coaching floats at the bottom, over the steps already danced.
+    final coaching = hold != null && hold.coaching ? _holdCard(theme) : null;
+    // The paused or failed card over the chart offers End itself.
     final covered = hold is PausedHold || hold is FailedHold;
-    final endButton = Visibility.maintain(
-      visible: !covered,
-      child: SizedBox(
-        height: Sizes.button,
-        child: FilledButton.tonalIcon(
-          onPressed: s.ending || covered ? null : _confirmEnd,
-          icon: Icon(s.demo ? Icons.close_rounded : Icons.stop_rounded),
-          label: Text(s.demo ? 'Stop watching' : 'End session'),
-        ),
-      ),
-    );
-    final status = ValueListenableBuilder(
+    final hud = ValueListenableBuilder(
       valueListenable: _beatIndex,
-      builder: (context, beat, _) => _StatusHeader(
-        text: switch (s.phase) {
-          SessionPhase.preparing => 'Getting ready…',
-          SessionPhase.error => 'Could not start',
-          // The card over the chart says Paused; here, where it picks up.
-          _ when hold is PausedHold || hold is FailedHold => 'Bar ${barOf(hold!.fromBeat, s.preset.beatsPerBar)} of ${s.preset.bars}',
-          _ when s.clock.nowBeat < s.score.fromBeat => 'Get ready',
-          _ => 'Bar ${barOf(s.clock.nowBeat, s.preset.beatsPerBar).clamp(1, s.preset.bars)} of ${s.preset.bars}',
-        },
-        // Dots run through the count-in too (a restart is always at a bar start).
-        beatInBar: s.phase == SessionPhase.running && hold == null ? (beat - 1) % s.preset.beatsPerBar : null,
-        beatsPerBar: s.preset.beatsPerBar,
-      ),
+      builder: (context, beat, _) {
+        final practice = s.kind == SessionKind.practice;
+        final acc = practice ? s.score.firstTryAccuracy : s.score.accuracy;
+        return _Hud(
+          // Dots run through the count-in too (a restart is always at a bar start).
+          beatInBar: s.phase == SessionPhase.running && hold == null ? (beat - 1) % s.preset.beatsPerBar : null,
+          beatsPerBar: s.preset.beatsPerBar,
+          score: s.scoring && !s.demo && s.phase == SessionPhase.running,
+          rec: !s.scoring && !s.demo,
+          text: switch (s.phase) {
+            SessionPhase.preparing => 'Getting ready…',
+            _ when s.demo => 'Watching',
+            _ when !s.scoring => 'Rec',
+            _ => acc == null ? '–' : '${(acc * 100).round()}%',
+          },
+        );
+      },
     );
-    final Widget side = s.demo
-        ? _DemoPanel(session: s)
-        : s.scoring
-            ? _Tally(s.score)
-            : ValueListenableBuilder(
-                valueListenable: _beatIndex, builder: (context, beat, child) => _CapturePanel(s.recorder));
 
     // Where the feet go, from the routine (not the sensors): a reference.
     final floor = FloorMap(preset: s.preset, beat: () => s.chart.nowBeat, repaint: s.chart, caption: false);
@@ -259,89 +243,63 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
         ? _ErrorPanel(message: s.error ?? '', onBack: s.end)
         : LayoutBuilder(
             builder: (context, c) {
+              final Widget stage;
               if (c.maxWidth > c.maxHeight * 1.2) {
-                // Landscape tablet: chart takes the full height, status and tally at the side.
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                        child: Padding(
-                            padding: const EdgeInsets.fromLTRB(Space.lg, Space.xs, Space.sm, Space.lg),
-                            // Beside the chart only where both keep room to read.
-                            // A phone on its side (short and narrower) shares the
-                            // room half and half.
-                            child: LayoutBuilder(builder: (context, cc) {
-                              final phone = c.maxHeight < 500;
-                              return _floor && cc.maxWidth >= (phone ? 480 : 720)
-                                  ? Row(
-                                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                                      children: [
-                                        Expanded(flex: phone ? 1 : 5, child: chart(wide: true)),
-                                        const SizedBox(width: Space.md),
-                                        Expanded(flex: phone ? 1 : 4, child: floor),
-                                      ],
-                                    )
-                                  : chart(wide: true);
-                            }))),
-                    SizedBox(
-                      // Narrower on a phone on its side, so the floor map fits beside the chart.
-                      width: c.maxHeight < 500 ? 230.0 : (c.maxWidth * 0.3).clamp(280.0, 420.0),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(Space.sm, Space.xs, Space.xl, Space.lg),
-                        child: Column(
+                // On its side: the chart and the floor map share the whole width
+                // (a phone shares it half and half), the chart alone if the map is off.
+                final phone = c.maxHeight < 500;
+                stage = Padding(
+                  padding: const EdgeInsets.fromLTRB(Space.lg, Space.xs, Space.lg, Space.lg),
+                  child: _floor && c.maxWidth >= (phone ? 480 : 720)
+                      ? Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            status,
-                            const SizedBox(height: Space.md),
-                            AnimatedSize(
-                              duration: Motion.fade,
-                              alignment: Alignment.topCenter,
-                              child: AnimatedSwitcher(
-                                duration: Motion.fade,
-                                child: coaching == null
-                                    ? const SizedBox(width: double.infinity)
-                                    : Padding(
-                                        key: ValueKey(hold),
-                                        padding: const EdgeInsets.only(bottom: Space.md),
-                                        child: coaching),
-                              ),
-                            ),
-                            Expanded(child: side),
-                            const SizedBox(height: Space.lg),
-                            endButton,
+                            Expanded(flex: phone ? 1 : 5, child: chart(wide: true)),
+                            const SizedBox(width: Space.md),
+                            Expanded(flex: phone ? 1 : 4, child: floor),
                           ],
+                        )
+                      : chart(wide: true),
+                );
+              } else {
+                stage = Padding(
+                  padding: const EdgeInsets.fromLTRB(Space.md, 0, Space.md, Space.md),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_floor) ...[
+                        SizedBox(height: c.maxHeight * 0.32, child: floor),
+                        const SizedBox(height: Space.sm),
+                      ],
+                      Expanded(child: chart(wide: false)),
+                    ],
+                  ),
+                );
+              }
+              return Stack(
+                children: [
+                  Positioned.fill(child: stage),
+                  Positioned(
+                    left: Space.lg,
+                    right: Space.lg,
+                    bottom: Space.xl,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 560),
+                        child: AnimatedSwitcher(
+                          duration: Motion.fade,
+                          child: coaching == null
+                              ? const SizedBox.shrink()
+                              : Material(
+                                  key: ValueKey(hold),
+                                  color: Colors.transparent,
+                                  elevation: Elevation.overlay,
+                                  child: coaching,
+                                ),
                         ),
                       ),
                     ),
-                  ],
-                );
-              }
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(padding: const EdgeInsets.symmetric(horizontal: Space.lg), child: status),
-                  if (_floor)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(Space.md, 0, Space.md, Space.sm),
-                      child: SizedBox(height: c.maxHeight * 0.3, child: floor),
-                    ),
-                  Expanded(
-                      child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: Space.md), child: chart(wide: false))),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(Space.md, Space.sm, Space.md, Space.sm),
-                    child: AnimatedSize(
-                      duration: Motion.fade,
-                      alignment: Alignment.topCenter,
-                      child: AnimatedSwitcher(
-                        duration: Motion.fade,
-                        child: coaching == null
-                            ? SizedBox(key: const ValueKey('side'), height: 96, child: side)
-                            : KeyedSubtree(key: ValueKey(hold), child: coaching),
-                      ),
-                    ),
                   ),
-                  Padding(padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.lg), child: endButton),
                 ],
               );
             },
@@ -355,7 +313,7 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(s.preset.name),
+          title: hud,
           actions: [
             IconButton(
               onPressed: () => setState(() => _floor = !_floor),
@@ -374,21 +332,11 @@ class _DanceScreenState extends State<DanceScreen> with SingleTickerProviderStat
                 icon: const Icon(Icons.info_outline_rounded),
                 tooltip: 'What the steps mean',
               ),
-            Padding(
-              padding: const EdgeInsets.only(right: Space.lg),
-              child: Wrap(
-                spacing: Space.sm,
-                children: [
-                  StatusPill(icon: Icons.speed_rounded, text: '${s.preset.bpm.round()} bpm'),
-                  // On a phone the routine name needs the room.
-                  if (MediaQuery.sizeOf(context).width >= 600)
-                    s.demo
-                        ? StatusPill(
-                            icon: Icons.visibility_rounded, text: 'Watch first', color: theme.colorScheme.primary)
-                        : StatusPill(icon: widget.kind.icon, text: widget.kind.title, color: theme.colorScheme.primary),
-                ],
-              ),
+            TextButton(
+              onPressed: s.ending || covered ? null : _confirmEnd,
+              child: Text(s.demo ? 'Stop' : 'End'),
             ),
+            const SizedBox(width: Space.sm),
           ],
         ),
         body: body,

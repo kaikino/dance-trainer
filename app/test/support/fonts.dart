@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-/// Loads Roboto (from the Flutter SDK) under the Material and Apple system
-/// font names, so widget tests measure real text instead of the test font's
+/// Loads Oswald and Work Sans (the app's fonts) and Roboto (from the Flutter SDK) under the
+/// Material and Apple system font names, so widget tests measure real text instead of the test font's
 /// square glyphs. Without the SDK fonts the tests fall back to the test font
 /// (wider, so stricter).
 Future<void> loadRealFonts() async {
@@ -27,6 +27,14 @@ Future<void> loadRealFonts() async {
     final l = FontLoader(family);
     for (final b in weights) {
       l.addFont(Future.value(ByteData.view(b.buffer)));
+    }
+    await l.load();
+  }
+  // The app's own fonts (pubspec.yaml), as the app draws them.
+  for (final (family, dir) in [('Oswald', 'oswald'), ('Work Sans', 'worksans')]) {
+    final l = FontLoader(family);
+    for (final f in Directory('assets/fonts/$dir').listSync().whereType<File>().where((f) => f.path.endsWith('.ttf'))) {
+      l.addFont(Future.value(ByteData.view(f.readAsBytesSync().buffer)));
     }
     await l.load();
   }

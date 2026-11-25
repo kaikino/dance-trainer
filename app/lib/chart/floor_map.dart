@@ -63,9 +63,12 @@ class _FloorMapState extends State<FloorMap> {
 /// The floor map playing a routine's pattern on its own clock, on a loop: the
 /// routine screen's preview.
 class FloorMapPreview extends StatefulWidget {
-  const FloorMapPreview({super.key, required this.preset, this.tempo = 1.0});
+  const FloorMapPreview({super.key, required this.preset, this.tempo = 1.0, this.caption = true});
   final Preset preset;
   final double tempo;
+
+  /// The next step's name under the floor.
+  final bool caption;
 
   @override
   State<FloorMapPreview> createState() => _FloorMapPreviewState();
@@ -108,7 +111,8 @@ class _FloorMapPreviewState extends State<FloorMapPreview> with SingleTickerProv
   }
 
   @override
-  Widget build(BuildContext context) => FloorMap(preset: widget.preset, beat: _beat, repaint: _tick);
+  Widget build(BuildContext context) =>
+      FloorMap(preset: widget.preset, beat: _beat, repaint: _tick, caption: widget.caption);
 }
 
 class _FloorPainter extends CustomPainter {
@@ -192,9 +196,17 @@ class _FloorPainter extends CustomPainter {
     final l = plan.foot(Role.left, b), r = plan.foot(Role.right, b);
     final next = plan.upcoming(b, 3);
 
-    // Frame the feet and where the next step goes, a little ahead of centre.
-    var mid = (l.pos + r.pos) / 2;
-    if (next.isNotEmpty) mid = Offset.lerp(mid, (next.first.to + (next.first.foot == Role.left ? r.pos : l.pos)) / 2, 0.3)!;
+    // Frame the feet and where they are going: the feet's midpoint averaged
+    // over the next beat and a half. Every sample glides with the beat (a foot
+    // eases through its swing), so the view drifts instead of jumping when a
+    // step lands and the next one comes up.
+    var ahead = Offset.zero;
+    const samples = 7;
+    for (var k = 0; k < samples; k++) {
+      final t = b + k * 0.25;
+      ahead += (plan.foot(Role.left, t).pos + plan.foot(Role.right, t).pos) / 2;
+    }
+    final mid = Offset.lerp((l.pos + r.pos) / 2, ahead / samples.toDouble(), 0.6)!;
     _cam = mid.translate(0, 0.08);
     // Zoom to the floor this routine covers (the camera follows the feet, so
     // most of it, not all of it), looking more from above in a tall panel.
@@ -247,7 +259,7 @@ class _FloorPainter extends CustomPainter {
           ..shader = const LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFF0B0E1F), Color(0xFF1A1F3D), Color(0xFF141831)],
+            colors: [Color(0xFF0E0D0C), Color(0xFF22201D), Color(0xFF181715)],
             stops: [0, 0.55, 1],
           ).createShader(rect));
     // A soft spotlight on the floor round the dancer.
@@ -257,9 +269,9 @@ class _FloorPainter extends CustomPainter {
         spot,
         Paint()
           ..shader = ui.Gradient.radial(c, spot.getBounds().width / 2, [
-            const Color(0x33A5B4FC),
-            const Color(0x0FA5B4FC),
-            const Color(0x00A5B4FC),
+            const Color(0x33F2EFE9),
+            const Color(0x0FF2EFE9),
+            const Color(0x00F2EFE9),
           ], [
             0,
             0.55,
@@ -301,7 +313,7 @@ class _FloorPainter extends CustomPainter {
           ..shader = const LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.center,
-            colors: [Color(0xFF0B0E1F), Color(0x000B0E1F)],
+            colors: [Color(0xFF0E0D0C), Color(0x000E0D0C)],
           ).createShader(rect));
   }
 
@@ -335,8 +347,7 @@ class _FloorPainter extends CustomPainter {
     canvas.drawPath(
         path,
         Paint()
-          ..shader = ui.Gradient.radial(
-              Offset.lerp(bounds.center, bounds.topCenter, 0.45)!, bounds.width * 0.6, [
+          ..shader = ui.Gradient.radial(Offset.lerp(bounds.center, bounds.topCenter, 0.45)!, bounds.width * 0.6, [
             Colors.white.withValues(alpha: 0.35),
             Colors.white.withValues(alpha: 0),
           ]));
@@ -369,7 +380,7 @@ class _FloorPainter extends CustomPainter {
     final at = _proj(m.to.translate(0, _footLen * 0.75));
     final rad = (_k * 0.045).clamp(9.0, 14.0);
     canvas.drawCircle(at, rad, Paint()..color = color.withValues(alpha: k == 0 ? 1 : 0.55));
-    _text(canvas, '${k + 1}', at, rad * 1.15, color: const Color(0xFF0B0E1F), weight: FontWeight.w800);
+    _text(canvas, '${k + 1}', at, rad * 1.15, color: const Color(0xFF0E0D0C), weight: FontWeight.w800);
   }
 
   void _arrow(Canvas canvas, Offset from, FloorMove m, double strength, double b) {
@@ -430,9 +441,9 @@ class _FloorPainter extends CustomPainter {
   void _hud(Canvas canvas, Size size, FloorMove? next, FootPose? swinging) {
     // Which way the dancer faces.
     final top = Offset(size.width / 2, 18);
-    _text(canvas, 'FRONT', top.translate(0, 2), 11, color: Colors.white.withValues(alpha: 0.55), weight: FontWeight.w700, spacing: 2);
-    canvas.drawPath(
-        Path()..addPolygon([top.translate(0, -13), top.translate(-5, -7), top.translate(5, -7)], true),
+    _text(canvas, 'FRONT', top.translate(0, 2), 11,
+        color: Colors.white.withValues(alpha: 0.55), weight: FontWeight.w700, spacing: 2);
+    canvas.drawPath(Path()..addPolygon([top.translate(0, -13), top.translate(-5, -7), top.translate(5, -7)], true),
         Paint()..color = Colors.white.withValues(alpha: 0.55));
     if (!caption) return;
     final m = swinging?.move ?? next;
@@ -442,7 +453,7 @@ class _FloorPainter extends CustomPainter {
     final pill = RRect.fromRectAndRadius(
         Rect.fromCenter(center: Offset(size.width / 2, size.height - 24), width: tp.width + 40, height: 32),
         const Radius.circular(16));
-    canvas.drawRRect(pill, Paint()..color = const Color(0xCC0B0E1F));
+    canvas.drawRRect(pill, Paint()..color = const Color(0xCC0E0D0C));
     canvas.drawRRect(
         pill,
         Paint()
@@ -455,7 +466,8 @@ class _FloorPainter extends CustomPainter {
 
   // ---- helpers ----------------------------------------------------------------
 
-  static void _dashed(Canvas canvas, Path path, Paint paint, {required double dash, required double gap, double phase = 0}) {
+  static void _dashed(Canvas canvas, Path path, Paint paint,
+      {required double dash, required double gap, double phase = 0}) {
     final period = dash + gap;
     for (final metric in path.computeMetrics()) {
       var d = phase % period;
@@ -470,13 +482,20 @@ class _FloorPainter extends CustomPainter {
 
   static final _cache = <(String, double, int, int), TextPainter>{};
 
-  static TextPainter _layout(String s, double size, {required Color color, FontWeight weight = FontWeight.w600, double spacing = 0}) {
+  static TextPainter _layout(String s, double size,
+      {required Color color, FontWeight weight = FontWeight.w600, double spacing = 0}) {
     final key = (s, size.roundToDouble(), color.toARGB32(), weight.value + (spacing * 10).round());
     if (_cache.length > 200) _cache.clear();
     return _cache[key] ??= TextPainter(
       text: TextSpan(
           text: s,
-          style: TextStyle(color: color, fontSize: size.roundToDouble(), fontWeight: weight, letterSpacing: spacing, height: 1)),
+          style: TextStyle(
+              fontFamily: AppType.family,
+              color: color,
+              fontSize: size.roundToDouble(),
+              fontWeight: weight,
+              letterSpacing: spacing,
+              height: 1)),
       textDirection: TextDirection.ltr,
     )..layout();
   }
@@ -485,7 +504,10 @@ class _FloorPainter extends CustomPainter {
       {required Color color, FontWeight weight = FontWeight.w600, double spacing = 0, bool shadow = false}) {
     final tp = _layout(s, size, color: color, weight: weight, spacing: spacing);
     final at = center - Offset(tp.width / 2, tp.height / 2);
-    if (shadow) _layout(s, size, color: const Color(0x99000000), weight: weight, spacing: spacing).paint(canvas, at.translate(0, 1));
+    if (shadow) {
+      _layout(s, size, color: const Color(0x99000000), weight: weight, spacing: spacing)
+          .paint(canvas, at.translate(0, 1));
+    }
     tp.paint(canvas, at);
   }
 

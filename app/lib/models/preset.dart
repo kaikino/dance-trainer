@@ -19,7 +19,7 @@ class Preset {
   final double bpm;
   final int countInBeats;
   final List<PresetStep> steps; // expanded over `repeats`
-  final String? music; // file name under assets/music/, or null for a metronome
+  final String? music; // file name under assets/music/, or null for a generated track (SongSynth)
   final double tempo; // 1.0 = as written; the music plays at this speed
   final int beatsPerBar; // time signature: 4 (4/4), 3 (3/4, a waltz box step)
 

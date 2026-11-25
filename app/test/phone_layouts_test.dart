@@ -17,6 +17,7 @@ import 'package:dance_trainer/screens/summary_screen.dart';
 import 'package:dance_trainer/store/app_dirs.dart';
 import 'package:dance_trainer/models/session_score.dart';
 import 'package:dance_trainer/store/session_store.dart';
+import 'package:dance_trainer/ui/run_timeline.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -125,16 +126,14 @@ void main() {
       });
 
       testWidgets('$label: watch first (chart and floor map)', (t) async {
-        await show(
-            t, DanceScreen(manager: m, preset: box, kind: SessionKind.performance, dancer: 't', demo: true),
+        await show(t, DanceScreen(manager: m, preset: box, kind: SessionKind.performance, dancer: 't', demo: true),
             settleMs: 1500);
         await done(t);
       });
 
       testWidgets('$label: dancing, nodes connected', (t) async {
         await t.runAsync(m.scanAndConnect);
-        await show(t, DanceScreen(manager: m, preset: box, kind: SessionKind.performance, dancer: 't'),
-            settleMs: 1500);
+        await show(t, DanceScreen(manager: m, preset: box, kind: SessionKind.performance, dancer: 't'), settleMs: 1500);
         await done(t);
       });
 
@@ -149,29 +148,44 @@ void main() {
         await show(
             t,
             SummaryScreen(
-                manager: m, preset: box, kind: SessionKind.capture, dancer: 't', recorder: rec, score: SessionScore(box)));
-        await done(t);
-      });
-
-      testWidgets('$label: summary of a performance', (t) async {
-        late SessionRecorder rec;
-        await t.runAsync(() async {
-          rec = SessionRecorder(preset: box, dancer: 't', mode: Mode.dance, nodes: m);
-          await rec.begin();
-          rec.addSegment(DateTime.now().millisecondsSinceEpoch);
-          await rec.end();
-        });
-        await show(
-            t,
-            SummaryScreen(
                 manager: m,
                 preset: box,
-                kind: SessionKind.performance,
+                kind: SessionKind.capture,
                 dancer: 't',
                 recorder: rec,
                 score: SessionScore(box)));
         await done(t);
       });
+
+      for (final kind in [SessionKind.performance, SessionKind.practice]) {
+        testWidgets('$label: summary of ${kind.name}, with its timeline', (t) async {
+          late SessionRecorder rec;
+          await t.runAsync(() async {
+            rec = SessionRecorder(preset: box, dancer: 't', mode: Mode.dance, nodes: m);
+            await rec.begin();
+            rec.addSegment(DateTime.now().millisecondsSinceEpoch);
+            await rec.end();
+          });
+          // A run with some of everything, so the timeline has dots, weak bars and (Practice) rewinds.
+          final score = SessionScore(box);
+          for (var i = 0; i < box.steps.length; i++) {
+            final st = box.steps[i];
+            final v = i % 7 == 3
+                ? Verdict.offBeat
+                : i % 9 == 5
+                    ? Verdict.wrongStep
+                    : i % 13 == 8
+                        ? Verdict.missed
+                        : Verdict.correct;
+            score.add(st.foot, StepEvent(i + 1, 0, st.stepClass, 200, st.stepClass, (i % 5 - 2) * 70, v), st.beat);
+          }
+          if (kind == SessionKind.practice) score.rewindsByBar.addAll({3: 2, 7: 1});
+          await show(t, SummaryScreen(manager: m, preset: box, kind: kind, dancer: 't', recorder: rec, score: score));
+          await t.scrollUntilVisible(find.byKey(RunTimeline.chartKey), 200, scrollable: find.byType(Scrollable).first);
+          await t.pump(const Duration(milliseconds: 300));
+          await done(t);
+        });
+      }
 
       testWidgets('$label: history', (t) async {
         await show(t, HistoryScreen(preset: box));

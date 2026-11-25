@@ -12,11 +12,14 @@ import 'dance_screen.dart';
 import 'preset_screen.dart';
 import 'recording_screen.dart';
 import '../store/app_dirs.dart';
+import '../ui/run_timeline.dart';
 import '../ui/share.dart';
 
 /// End-of-session numbers: accuracy as a ring (first-try accuracy in
 /// Practice), timing, mistakes by type and by foot and step, a drill button
 /// for the worst one, and an export button that shares the session files.
+/// Under them the run over time ([RunTimeline]): accuracy by bar and every
+/// step's verdict and timing, with Practice from any bar.
 /// Two columns in landscape (stats | mistakes); actions pinned at the bottom.
 class SummaryScreen extends StatefulWidget {
   const SummaryScreen({
@@ -134,8 +137,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
   String _savedPath() => AppDirs.describe(recorder.savedTo?.path ?? '');
 
   /// The run's raw data as graphs (the saved copy if there is one).
-  void _viewData() => Navigator.push(
-      context, MaterialPageRoute(builder: (_) => RecordingScreen(dir: recorder.savedTo ?? recorder.dir, canDelete: false)));
+  void _viewData() => Navigator.push(context,
+      MaterialPageRoute(builder: (_) => RecordingScreen(dir: recorder.savedTo ?? recorder.dir, canDelete: false)));
 
   Future<void> _discard() async {
     final yes = await showDialog<bool>(
@@ -157,8 +160,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
 
   /// After a recording, back to the routine screen (the training session goes
   /// on); otherwise home.
-  void _done() => Navigator.popUntil(
-      context, (r) => r.isFirst || (_autoSave && r.settings.name == PresetScreen.routeName));
+  void _done() =>
+      Navigator.popUntil(context, (r) => r.isFirst || (_autoSave && r.settings.name == PresetScreen.routeName));
 
   Future<void> _export() => shareFiles(context, recorder.files, subject: 'Dance Trainer session ${recorder.sessionId}');
 
@@ -181,28 +184,18 @@ class _SummaryScreenState extends State<SummaryScreen> {
       bottomNavigationBar: BottomActions(
         maxWidth: 1100,
         children: [
-          FilledButton.icon(
-            onPressed: () => _dance(context, kind),
-            icon: const Icon(Icons.replay_rounded),
-            label: const Text('Try again'),
-          ),
+          FilledButton(onPressed: () => _dance(context, kind), child: const Text('Try again')),
           if (_autoSave)
             // Kept by default; thrown away only on purpose.
-            OutlinedButton.icon(
+            OutlinedButton(
               onPressed: _discarded || _saved != true ? null : _discard,
               style: OutlinedButton.styleFrom(foregroundColor: theme.colorScheme.error),
-              icon: Icon(_discarded ? Icons.delete_forever_rounded : Icons.delete_outline_rounded),
-              label: Text(_discarded ? 'Discarded' : 'Discard'),
+              child: Text(_discarded ? 'Discarded' : 'Discard'),
             )
           else
-            OutlinedButton.icon(
+            OutlinedButton(
               onPressed: _saved == false ? () => _save() : null,
-              icon: switch (_saved) {
-                null => const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                true => const Icon(Icons.check_rounded),
-                false => const Icon(Icons.save_alt_rounded),
-              },
-              label: Text(_saved == true ? 'Saved' : 'Save'),
+              child: Text(switch (_saved) { null => 'Saving…', true => 'Saved', false => 'Save' }),
             ),
           OutlinedButton(
             onPressed: _done,
@@ -216,13 +209,9 @@ class _SummaryScreenState extends State<SummaryScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(preset.name, style: theme.textTheme.headlineMedium),
-            const SizedBox(height: Space.sm),
-            Wrap(spacing: Space.sm, runSpacing: Space.sm, children: [
-              StatusPill(
-                  icon: Icons.speed_rounded,
-                  text: tempoLabel([for (final g in recorder.segments) g.bpm], fallback: preset.bpm)),
-              StatusPill(icon: kind.icon, text: kind.title, color: theme.colorScheme.primary),
-            ]),
+            const SizedBox(height: Space.xs),
+            Text('${kind.title} · ${tempoLabel([for (final g in recorder.segments) g.bpm], fallback: preset.bpm)}',
+                style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
           ],
         );
         final List<Widget> left, right;
@@ -233,6 +222,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
           left = _stats(context, wide);
           right = _mistakes(context);
         }
+        final timeline = _timeline(context, wide);
         final content = wide
             ? Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -244,7 +234,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
                   ],
                 ],
               )
-            : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [...left, ...right]);
+            : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [...left, ...timeline, ...right]);
         return ListView(
           padding: EdgeInsets.fromLTRB(Space.gutter(context), Space.lg, Space.gutter(context), Space.xl),
           children: [
@@ -252,7 +242,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
               maxWidth: wide ? 1100 : 720,
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [header, const SizedBox(height: Space.sm), content]),
+                  children: [header, const SizedBox(height: Space.sm), content, if (wide) ...timeline]),
             ),
           ],
         );
@@ -277,7 +267,9 @@ class _SummaryScreenState extends State<SummaryScreen> {
       size: wide ? 200 : 150,
     );
     final facts = [
-      _Fact(Icons.done_all_rounded, '${score.judged}/${preset.steps.length}', 'steps judged'),
+      // Only worth saying when some steps went unjudged (a node dropped, the run ended early).
+      if (score.judged < preset.steps.length)
+        _Fact(Icons.done_all_rounded, '${score.judged}/${preset.steps.length}', 'steps judged'),
       _Fact(Icons.timer_rounded, meanErr == null ? '–' : '${meanErr.round() > 0 ? '+' : ''}${meanErr.round()} ms',
           timingAdvice(meanErr)),
       if (practice) ...[
@@ -363,6 +355,27 @@ class _SummaryScreenState extends State<SummaryScreen> {
           child: Text('${Verdict.extra.counted(score.extras)} off the schedule',
               style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         ),
+    ];
+  }
+
+  /// The run over time: accuracy by bar and every step's verdict and timing.
+  /// Nothing for a recording, or when no step was judged.
+  List<Widget> _timeline(BuildContext context, bool wide) {
+    if (kind == SessionKind.capture) return const [];
+    final data = RunTimelineData(preset, score, practice: kind == SessionKind.practice);
+    if (data.isEmpty) return const [];
+    return [
+      SectionHeader(kind == SessionKind.practice ? 'Over time (first tries)' : 'Over time'),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Space.md, Space.lg, Space.lg, Space.lg),
+          child: RunTimeline(
+            data: data,
+            height: wide ? 280 : 240,
+            onPractice: (beat) => _dance(context, SessionKind.practice, fromBeat: beat),
+          ),
+        ),
+      ),
     ];
   }
 
@@ -568,13 +581,14 @@ class _MistakeRow extends StatelessWidget {
     final icon = stepIcon(group.step, group.foot);
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.xs),
-      leading: CircleAvatar(
-        radius: 22,
-        backgroundColor: theme.colorScheme.primary,
-        foregroundColor: theme.colorScheme.onPrimary,
-        child: icon == null ? null : Icon(icon),
+      leading: Container(
+        width: 44,
+        height: 44,
+        decoration: const BoxDecoration(color: Stage.panelHigh, borderRadius: Radii.mdAll),
+        child: icon == null ? null : Icon(icon, color: Stage.ink),
       ),
-      title: Text('${footName(group.foot)} foot, ${stepLabel(group.step, group.foot)}', style: theme.textTheme.titleMedium),
+      title: Text('${footName(group.foot)} foot, ${stepLabel(group.step, group.foot)}',
+          style: theme.textTheme.titleMedium),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: Space.sm),
         child: Wrap(
@@ -594,7 +608,6 @@ class _MistakeRow extends StatelessWidget {
           ],
         ),
       ),
-      trailing: Text('${group.count}', style: theme.textTheme.headlineSmall),
     );
   }
 }

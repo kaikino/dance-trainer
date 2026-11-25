@@ -20,6 +20,9 @@ class AppSettings {
   static String? lastKind;
   static Map<String, double> tempoByKind = {};
 
+  /// The song select plays the routine in the middle (off: silent browsing).
+  static bool musicPreview = true;
+
   static Future<File> _file() async => File('${(await AppDirs.private()).path}/settings.json');
 
   static Future<void> load() async {
@@ -30,6 +33,7 @@ class AppSettings {
       onboardingSeen = j['onboarding_seen'] as bool? ?? false;
       lastPresetId = j['last_preset_id'] as int?;
       lastKind = j['last_kind'] as String?;
+      musicPreview = j['music_preview'] as bool? ?? true;
       tempoByKind = {
         for (final e in ((j['tempo_by_kind'] as Map<String, dynamic>?) ?? const {}).entries)
           if (e.value is num) e.key: (e.value as num).toDouble(),
@@ -47,6 +51,7 @@ class AppSettings {
       'last_preset_id': lastPresetId,
       'last_kind': lastKind,
       'tempo_by_kind': tempoByKind,
+      'music_preview': musicPreview,
     }));
   }
 }

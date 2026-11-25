@@ -40,7 +40,8 @@ String stepHelp(StepClass c) => switch (c) {
       StepClass.back => 'Step this foot backward.',
       StepClass.sideOut => 'Step outwards to the side.',
       StepClass.sideIn => 'Bring this foot in beside the other one, without crossing.',
-      StepClass.forwardOut => 'Step forward and outwards: forward left with the left foot, forward right with the right.',
+      StepClass.forwardOut =>
+        'Step forward and outwards: forward left with the left foot, forward right with the right.',
       StepClass.forwardIn => 'Step forward and inwards: forward right with the left foot, forward left with the right.',
       StepClass.backOut => 'Step back and outwards: back left with the left foot, back right with the right.',
       StepClass.backIn => 'Step back and inwards: back right with the left foot, back left with the right.',
@@ -265,9 +266,23 @@ class BottomActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stack = stackOnPhone && !Space.isTablet(context);
+    final phone = !Space.isTablet(context);
+    final stack = stackOnPhone && phone;
+    // Three or more on a phone: the main button on its own row, the rest
+    // shared below, so no label has to wrap.
+    final split = phone && !stack && children.length >= 3;
+    Widget row(List<Widget> buttons, {bool weighted = true}) => Row(
+          children: [
+            for (var i = 0; i < buttons.length; i++) ...[
+              if (i > 0) const SizedBox(width: Space.md),
+              Expanded(flex: weighted && i == 0 ? 2 : 1, child: SizedBox(height: Sizes.button, child: buttons[i])),
+            ],
+          ],
+        );
+    // A darker bar with a hairline along its top.
     return Material(
-      color: Theme.of(context).colorScheme.surfaceContainer,
+      color: Stage.night,
+      shape: const Border(top: BorderSide(color: Stage.line)),
       child: ContentWidth(
         maxWidth: maxWidth,
         child: Padding(
@@ -283,14 +298,17 @@ class BottomActions extends StatelessWidget {
                     ],
                   ],
                 )
-              : Row(
-                  children: [
-                    for (var i = 0; i < children.length; i++) ...[
-                      if (i > 0) const SizedBox(width: Space.md),
-                      Expanded(flex: i == 0 ? 2 : 1, child: SizedBox(height: Sizes.button, child: children[i])),
-                    ],
-                  ],
-                ),
+              : split
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(height: Sizes.button, child: children.first),
+                        const SizedBox(height: Space.sm),
+                        row(children.sublist(1), weighted: false),
+                      ],
+                    )
+                  : row(children),
         ),
       ),
     );
@@ -309,7 +327,7 @@ class StatusPill extends StatelessWidget {
     final c = color ?? Theme.of(context).colorScheme.onSurfaceVariant;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.xs),
-      decoration: BoxDecoration(color: c.withValues(alpha: 0.12), borderRadius: Radii.fullAll),
+      decoration: BoxDecoration(color: c.withValues(alpha: 0.12), borderRadius: Radii.smAll),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -317,7 +335,9 @@ class StatusPill extends StatelessWidget {
           const SizedBox(width: Space.xs),
           Flexible(
             child: Text(text,
-                maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.label.copyWith(color: c)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.label.copyWith(color: c)),
           ),
         ],
       ),
@@ -343,6 +363,7 @@ class ScoreRing extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
+          DecoratedBox(decoration: BoxDecoration(shape: BoxShape.circle, color: Theme.of(context).colorScheme.surface)),
           CircularProgressIndicator(
             value: v ?? 0,
             strokeWidth: size * 0.075,

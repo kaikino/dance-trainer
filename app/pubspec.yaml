@@ -32,3 +32,21 @@ flutter:
   assets:
     - assets/presets/
     - assets/music/
+  # Oswald (headings) and Work Sans (everything else), both SIL Open Font
+  # License: assets/fonts/*/OFL.txt. Bundled so Android and iOS match.
+  fonts:
+    - family: Oswald
+      fonts:
+        - asset: assets/fonts/oswald/Oswald-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/oswald/Oswald-SemiBold.ttf
+          weight: 600
+    - family: Work Sans
+      fonts:
+        - asset: assets/fonts/worksans/WorkSans-Regular.ttf
+        - asset: assets/fonts/worksans/WorkSans-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/worksans/WorkSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/worksans/WorkSans-Bold.ttf
+          weight: 700

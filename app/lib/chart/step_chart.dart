@@ -71,7 +71,8 @@ class StepChartController extends ChangeNotifier {
       final i = order[k];
       final s = steps[i];
       if (s.stepClass == StepClass.none || verdicts[i] != null) continue;
-      next = 'Next: ${footName(s.foot).toLowerCase()} foot ${stepLabel(s.stepClass, s.foot)}, bar ${barOf(s.beat, preset.beatsPerBar)}';
+      next =
+          'Next: ${footName(s.foot).toLowerCase()} foot ${stepLabel(s.stepClass, s.foot)}, bar ${barOf(s.beat, preset.beatsPerBar)}';
       break;
     }
     final last = _lastVerdict;
@@ -248,36 +249,25 @@ class _StepChartPainter extends CustomPainter {
     canvas.save();
     canvas.clipRect(Rect.fromLTRB(0, headerH, size.width, size.height));
     final visible = <(int, PresetStep, double)>[];
-    final next = <Role, int>{};
     final steps = c.preset.steps;
     for (var i = 0; i < steps.length; i++) {
       final s = steps[i];
       final dBeat = s.beat - nowBeat;
       if (s.stepClass == StepClass.none || dBeat < -behind - 0.5 || dBeat > ahead + 0.5) continue;
       visible.add((i, s, dBeat));
-      if (dBeat > -0.25 && c.verdicts[i] == null) next.putIfAbsent(s.foot, () => i);
     }
 
-    // 3. Captions, above upcoming steps only (they never cross the now line).
     final scaler = textScaler.clamp(maxScaleFactor: 1.6);
-    final captionSize = scaler.scale((r * 0.42).clamp(13.0, 28.0));
-    for (final (i, s, dBeat) in visible) {
-      if (dBeat <= 0.15) continue;
-      final cx = laneX(s.foot) + laneW / 2;
-      final cy = nowY - dBeat * pxPerBeat;
-      final scale = next[s.foot] == i ? 1.15 : 1.0;
-      final tp = _text(stepLabel(s.stepClass, s.foot), captionSize, scheme.onSurfaceVariant, AppType.strong,
-          outline: scheme.surfaceContainerLow);
-      tp.paint(canvas, Offset(cx - tp.width / 2, cy - r * scale - 6 - tp.height));
-    }
-
     // 4. Footprints, opaque so nothing strikes through them.
     for (final (i, s, dBeat) in visible) {
       final cx = laneX(s.foot) + laneW / 2;
       final cy = nowY - dBeat * pxPerBeat;
       final v = c.verdicts[i];
-      final isNext = next[s.foot] == i;
-      final rr = isNext ? r * 1.15 : r;
+      // How much this step stands out (bigger, a halo): it grows as it comes
+      // up to the land line and eases back just after, so nothing pops when
+      // one step lands and the next takes over.
+      final focus = _focus(dBeat);
+      final rr = r * (1 + 0.15 * focus);
       final Color fill;
       if (v != null && v != Verdict.unjudged) {
         fill = v.fill;
@@ -286,18 +276,19 @@ class _StepChartPainter extends CustomPainter {
       } else {
         fill = scheme.primary;
       }
-      if (isNext) {
-        canvas.drawCircle(Offset(cx, cy), rr + 9, Paint()..color = scheme.primary.withValues(alpha: 0.18));
+      if (focus > 0) {
+        canvas.drawCircle(
+            Offset(cx, cy), rr + 9 * focus, Paint()..color = scheme.primary.withValues(alpha: 0.18 * focus));
       }
       canvas.drawCircle(Offset(cx, cy), rr, Paint()..color = fill);
-      if (isNext) {
+      if (focus > 0) {
         canvas.drawCircle(
             Offset(cx, cy),
             rr - 2,
             Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = 3
-              ..color = onColor(fill).withValues(alpha: 0.7));
+              ..color = onColor(fill).withValues(alpha: 0.7 * focus));
       }
       final icon = stepIcon(s.stepClass, s.foot);
       if (icon != null) _icon(canvas, icon, Offset(cx, cy), rr * 1.25, onColor(fill));
@@ -379,6 +370,17 @@ class _StepChartPainter extends CustomPainter {
     canvas.restore();
   }
 
+  /// 0..1 emphasis for a step [dBeat] beats from now: rises from 1.6 to 0.6
+  /// beats out, full until it lands, gone 0.35 beats after (smoothstep ramps).
+  static double _focus(double dBeat) {
+    double smooth(double a, double b, double x) {
+      final t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+      return t * t * (3 - 2 * t);
+    }
+
+    return dBeat >= 0 ? 1 - smooth(0.6, 1.6, dBeat) : 1 - smooth(0, 0.35, -dBeat);
+  }
+
   Color _hitColor(_Hit h) => h.verdict?.fill ?? _scheme.primary;
 
   /// Laid-out text painters by what they draw: the same captions, labels and
@@ -407,8 +409,13 @@ class _StepChartPainter extends CustomPainter {
 
   static TextPainter _layoutText(String s, double size, Color color, FontWeight weight,
       {Color? outline, double letterSpacing = 0}) {
-    final style =
-        TextStyle(fontSize: size, fontWeight: weight, color: color, letterSpacing: letterSpacing, height: 1.1);
+    final style = TextStyle(
+        fontFamily: AppType.family,
+        fontSize: size,
+        fontWeight: weight,
+        color: color,
+        letterSpacing: letterSpacing,
+        height: 1.1);
     return TextPainter(
       text: TextSpan(
         text: s,

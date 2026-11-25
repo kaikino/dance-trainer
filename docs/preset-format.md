@@ -23,7 +23,7 @@ step chart and to build the per-node schedule (see `docs/ble-protocol.md`).
 | --- | --- |
 | `id` | u16, unique across presets; goes on the wire |
 | `bpm` | default tempo; the app may scale it (Practice mode) |
-| `beats_per_bar` | optional time signature: 3 for 3/4 (a waltz box step), default 4; sets bar lines, the metronome accent, bar numbers and practice rewinds |
+| `beats_per_bar` | optional time signature: 3 for 3/4 (a waltz box step), default 4; sets bar lines, the music's bars (a waltz in 3/4), bar numbers and practice rewinds |
 | `count_in_beats` | beats of click before beat 1 |
 | `loop` + `repeats` | the step list repeats this many times; beat numbers continue |
 | `length_beats` | optional: beats in one loop, so a pattern can end on a rest; default: the last step's beat |
@@ -31,7 +31,7 @@ step chart and to build the per-node schedule (see `docs/ble-protocol.md`).
 | `steps[].foot` | `L` or `R` |
 | `steps[].class` | one of the step classes below |
 | `steps[].weight` | optional, default true: `false` for a touch, where the foot lands but the weight stays on the other foot (the close on 4 in a grapevine) |
-| `music` | optional: file name under `app/assets/music/`; without it the app plays a generated metronome (clicks on every beat, accent on 1) |
+| `music` | optional: file name under `app/assets/music/`; without it the app makes a backing track at the routine's tempo (`app/lib/audio/song_synth.dart`: sticks for the count-in, then a groove with a sharp hit on every beat; its style follows the id, a waltz in 3/4). The song select previews the same music |
 
 ## Step classes
 

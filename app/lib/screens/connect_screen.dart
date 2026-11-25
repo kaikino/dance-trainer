@@ -73,6 +73,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
     if (mounted) setState(() {});
   }
 
+  void _openRecordings() => Navigator.push(context, MaterialPageRoute(builder: (_) => const RecordingsScreen()));
+
   void _openLiveView() => Navigator.push(context, MaterialPageRoute(builder: (_) => LiveViewScreen(manager: m)));
 
   void _snack(String s, {SnackBarAction? action}) {
@@ -95,21 +97,19 @@ class _ConnectScreenState extends State<ConnectScreen> {
     // One filled (primary) button for the next thing to do, the rest outlined.
     final scan = (
       label: _scanning ? 'Scanning…' : (connected.isEmpty ? 'Scan for nodes' : 'Scan again'),
-      icon: Icons.bluetooth_searching_rounded,
       onPressed: _scanning ? null : _scan,
     );
     final calibrate = (
       label: needCal.isEmpty ? 'Calibrate again' : (needCal.length == 2 ? 'Calibrate both feet' : 'Calibrate'),
-      icon: Icons.straighten_rounded,
       onPressed: connected.isEmpty ? null : () => _calibrate(needCal.isEmpty ? connected : needCal),
     );
     final routine = (
       label: 'Choose a routine',
-      icon: Icons.queue_music_rounded,
-      onPressed: connected.isEmpty ? null : _openRoutines,
+      // Open without nodes too: Watch first needs none.
+      onPressed: _openRoutines,
     );
     final (primary, secondary) = !allConnected
-        ? (scan, [if (connected.isNotEmpty) routine])
+        ? (scan, [routine])
         : needCal.isNotEmpty
             ? (calibrate, [routine])
             : (routine, [calibrate]);
@@ -118,35 +118,32 @@ class _ConnectScreenState extends State<ConnectScreen> {
       appBar: AppBar(
         title: const Text('Dance Trainer'),
         actions: [
-          TextButton.icon(
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RecordingsScreen())),
-            icon: const Icon(Icons.folder_open_rounded),
-            label: const Text('Recordings'),
-          ),
-          TextButton.icon(
-            onPressed: _openOnboarding,
-            icon: const Icon(Icons.help_outline_rounded),
-            label: const Text('How to wear'),
-          ),
+          // Words on a tablet; on a phone the title needs the room, so icons.
+          if (Space.isTablet(context)) ...[
+            TextButton(onPressed: _openRecordings, child: const Text('Recordings')),
+            TextButton(onPressed: _openOnboarding, child: const Text('How to wear')),
+          ] else ...[
+            IconButton(onPressed: _openRecordings, icon: const Icon(Icons.folder_open_outlined), tooltip: 'Recordings'),
+            IconButton(onPressed: _openOnboarding, icon: const Icon(Icons.help_outline), tooltip: 'How to wear'),
+          ],
           const SizedBox(width: Space.sm),
         ],
       ),
       bottomNavigationBar: BottomActions(
         stackOnPhone: true,
         children: [
-          FilledButton.icon(
-            onPressed: primary.onPressed,
-            icon: _scanning && primary == scan
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                : Icon(primary.icon),
-            label: Text(primary.label, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
+          _scanning && primary == scan
+              ? FilledButton.icon(
+                  onPressed: null,
+                  icon: const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                  label: Text(primary.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                )
+              : FilledButton(
+                  onPressed: primary.onPressed,
+                  child: Text(primary.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
           for (final b in secondary)
-            OutlinedButton.icon(
-              onPressed: b.onPressed,
-              icon: Icon(b.icon),
-              label: Text(b.label, maxLines: 1, overflow: TextOverflow.ellipsis),
-            ),
+            OutlinedButton(onPressed: b.onPressed, child: Text(b.label, maxLines: 1, overflow: TextOverflow.ellipsis)),
         ],
       ),
       body: ListView(
@@ -156,13 +153,13 @@ class _ConnectScreenState extends State<ConnectScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  m.fake
-                      ? 'Simulated nodes (FAKE_NODES build). Scan connects two fake ankles.'
-                      : 'Switch both ankle nodes on, then scan.',
-                  style: theme.textTheme.bodyLarge,
-                ),
-                const SizedBox(height: Space.lg),
+                if (connected.isEmpty) ...[
+                  Text(
+                    m.fake ? 'Simulated ankles: Scan connects two.' : 'Switch both ankle nodes on, then scan.',
+                    style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: Space.lg),
+                ],
                 for (final n in m.nodes) _nodeCard(n),
                 if (!allConnected && connected.isNotEmpty)
                   Padding(
@@ -190,75 +187,43 @@ class _ConnectScreenState extends State<ConnectScreen> {
       CalState.tiltOnly => StatusPill(icon: Icons.error_rounded, text: 'Tilt only', color: warn),
       CalState.notCalibrated => StatusPill(icon: Icons.error_rounded, text: 'Needs calibration', color: warn),
     };
+    // Each ankle marked in its colour on the floor map: pink left, blue right.
+    final foot = n.role == Role.left ? Stage.pink : Stage.blue;
     return Card(
       margin: const EdgeInsets.only(bottom: Space.md),
-      child: Padding(
-        padding: const EdgeInsets.all(Space.lg),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(left: BorderSide(color: n.connected ? foot : Stage.line, width: 4)),
+        ),
+        padding: const EdgeInsets.fromLTRB(Space.lg, Space.md, Space.md, Space.sm),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: Space.md,
+              runSpacing: Space.sm,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: n.connected ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest,
-                  foregroundColor: n.connected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
-                  child: Text(n.roleLabel,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                          color: n.connected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
-                          fontWeight: AppType.heavy)),
-                ),
-                const SizedBox(width: Space.lg),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('${footName(n.role)} ankle', style: theme.textTheme.titleLarge),
-                      const SizedBox(height: Space.sm),
-                      Wrap(
-                        spacing: Space.sm,
-                        runSpacing: Space.sm,
-                        children: [
-                          if (!n.connected)
-                            const StatusPill(icon: Icons.bluetooth_disabled_rounded, text: 'Not connected')
-                          else ...[
-                            if (st != null) StatusPill(icon: _batteryIcon(st.batteryPct), text: '${st.batteryPct}%'),
-                            if (calPill != null) calPill,
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+                Text('${footName(n.role)} ankle', style: theme.textTheme.titleLarge),
+                if (!n.connected)
+                  const StatusPill(icon: Icons.bluetooth_disabled_rounded, text: 'Not connected')
+                else ...[
+                  if (st != null) StatusPill(icon: _batteryIcon(st.batteryPct), text: '${st.batteryPct}%'),
+                  if (calPill != null) calPill,
+                ],
               ],
             ),
-            if (n.connected) ...[
-              const SizedBox(height: Space.md),
+            if (n.connected)
               Wrap(
-                spacing: Space.sm,
-                runSpacing: Space.xs,
+                spacing: Space.xs,
                 children: [
-                  TextButton.icon(
-                    onPressed: () => _calibrate([n]),
-                    icon: const Icon(Icons.straighten_rounded, size: 18),
-                    label: const Text('Calibrate'),
-                  ),
-                  TextButton.icon(
-                    onPressed: _openLiveView,
-                    icon: const Icon(Icons.threed_rotation_rounded, size: 18),
-                    label: const Text('Live view'),
-                  ),
-                  TextButton.icon(
-                    onPressed: () => n.buzzTest(Haptic.long),   // 400 ms: a short pulse barely spins the motor up
-                    icon: const Icon(Icons.vibration_rounded, size: 18),
-                    label: const Text('Buzz'),
-                  ),
+                  TextButton(onPressed: () => _calibrate([n]), child: const Text('Calibrate')),
+                  TextButton(onPressed: _openLiveView, child: const Text('Live view')),
+                  // 400 ms: a short pulse barely spins the motor up.
+                  TextButton(onPressed: () => n.buzzTest(Haptic.long), child: const Text('Buzz')),
                 ],
               ),
-              if (st != null)
-                Text('Firmware ${st.fwVersion >> 8}.${st.fwVersion & 0xff}',
-                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-            ],
           ],
         ),
       ),

@@ -1,18 +1,16 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../models/preset.dart';
 import '../store/settings.dart';
+import 'song_synth.dart';
 
-/// Plays the routine's music (or a generated metronome track when the preset
-/// has none) and keeps the beat clock that the chart and the nodes share.
+/// Plays the routine's music (or its generated backing track, [SongSynth],
+/// when the preset has none) and keeps the beat clock that the chart and the nodes share.
 ///
 /// The clock is the wall clock from the moment playback was requested, shifted
 /// by [AppSettings.audioDelayMs]: the player's own position starts counting at
@@ -33,7 +31,7 @@ class BeatClock extends ChangeNotifier {
         _interrupt();
       }
     });
-    unawaited(_session().then((session) {
+    unawaited(session().then((session) {
       if (_disposed) return;
       _sessionSubs
         ..add(session.interruptionEventStream.listen(onAudioInterruption))
@@ -52,9 +50,10 @@ class BeatClock extends ChangeNotifier {
   final _sessionSubs = <StreamSubscription<dynamic>>[];
   bool _disposed = false;
 
-  /// The app's audio session, set up once as music playback.
+  /// The app's audio session, set up once as music playback (the song
+  /// select's preview uses it too).
   static Future<AudioSession>? _configured;
-  static Future<AudioSession> _session() => _configured ??= AudioSession.instance.then((s) async {
+  static Future<AudioSession> session() => _configured ??= AudioSession.instance.then((s) async {
         await s.configure(const AudioSessionConfiguration.music());
         return s;
       });
@@ -85,7 +84,7 @@ class BeatClock extends ChangeNotifier {
   }
 
   /// Track ms per wall ms: music is sped up or slowed for a tempo change; the
-  /// metronome is generated at the new tempo and plays at normal speed.
+  /// generated track is made at the new tempo and plays at normal speed.
   double get _rate => preset.music != null ? preset.tempo : 1.0;
   double get _fileBeatMs => preset.beatMs * _rate;
   double get _countInFileMs => preset.countInBeats * _fileBeatMs;
@@ -120,7 +119,7 @@ class BeatClock extends ChangeNotifier {
       await _player.setAsset('assets/music/${preset.music}');
       await _player.setSpeed(_rate);
     } else {
-      final f = await _metronomeFile();
+      final f = await SongSynth.track(preset);
       await _player.setFilePath(f.path);
     }
   }
@@ -187,65 +186,5 @@ class BeatClock extends ChangeNotifier {
     _playerSub.cancel();
     _player.dispose();
     super.dispose();
-  }
-
-  // ---- metronome synthesis ---------------------------------------------------
-
-  /// A WAV file with a click on every beat from the count-in to two beats past
-  /// the last step. Beat 1 of every bar is accented. Written once per preset/bpm.
-  Future<File> _metronomeFile() async {
-    final dir = await getTemporaryDirectory();
-    final f = File('${dir.path}/metronome_${preset.id}_${(preset.bpm * 100).round()}_${preset.countInBeats}_${preset.beatsPerBar}.wav');
-    if (await f.exists()) return f;
-
-    const rate = 22050;
-    final totalBeats = preset.countInBeats + endBeat;
-    final nSamples = (totalBeats * preset.beatMs / 1000 * rate).ceil();
-    final pcm = Int16List(nSamples);
-    for (var b = 0; b < totalBeats.ceil(); b++) {
-      final isCountIn = b < preset.countInBeats;
-      final beatInBar = (b - preset.countInBeats) % preset.beatsPerBar;
-      final accent = !isCountIn && beatInBar == 0;
-      final freq = isCountIn ? 800.0 : (accent ? 1500.0 : 1000.0);
-      final amp = isCountIn ? 0.5 : (accent ? 0.9 : 0.6);
-      final start = (b * preset.beatMs / 1000 * rate).round();
-      const clickMs = 35;
-      const n = clickMs * rate ~/ 1000;
-      for (var i = 0; i < n && start + i < nSamples; i++) {
-        final t = i / rate;
-        final env = exp(-t * 90);
-        pcm[start + i] = (sin(2 * pi * freq * t) * env * amp * 32767).round();
-      }
-    }
-    await f.writeAsBytes(_wav(pcm, rate));
-    return f;
-  }
-
-  static Uint8List _wav(Int16List pcm, int rate) {
-    final dataBytes = pcm.length * 2;
-    final b = ByteData(44 + dataBytes);
-    void str(int o, String s) {
-      for (var i = 0; i < s.length; i++) {
-        b.setUint8(o + i, s.codeUnitAt(i));
-      }
-    }
-
-    str(0, 'RIFF');
-    b.setUint32(4, 36 + dataBytes, Endian.little);
-    str(8, 'WAVE');
-    str(12, 'fmt ');
-    b.setUint32(16, 16, Endian.little);
-    b.setUint16(20, 1, Endian.little); // PCM
-    b.setUint16(22, 1, Endian.little); // mono
-    b.setUint32(24, rate, Endian.little);
-    b.setUint32(28, rate * 2, Endian.little);
-    b.setUint16(32, 2, Endian.little);
-    b.setUint16(34, 16, Endian.little);
-    str(36, 'data');
-    b.setUint32(40, dataBytes, Endian.little);
-    for (var i = 0; i < pcm.length; i++) {
-      b.setInt16(44 + i * 2, pcm[i], Endian.little);
-    }
-    return b.buffer.asUint8List();
   }
 }

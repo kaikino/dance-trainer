@@ -795,7 +795,8 @@ class _ChartPainter extends CustomPainter {
   static TextPainter _tp(String s, double size, Color c, FontWeight w) {
     if (_cache.length > 400) _cache.clear();
     return _cache[(s, size, c.toARGB32(), w.value)] ??= TextPainter(
-      text: TextSpan(text: s, style: TextStyle(fontSize: size, color: c, fontWeight: w, height: 1)),
+      text: TextSpan(
+          text: s, style: TextStyle(fontFamily: AppType.family, fontSize: size, color: c, fontWeight: w, height: 1)),
       textDirection: TextDirection.ltr,
     )..layout();
   }

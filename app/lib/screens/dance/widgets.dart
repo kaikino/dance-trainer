@@ -1,58 +1,71 @@
 part of '../dance_screen.dart';
 
-/// Bar counter and four beat dots, at a fixed height so the chart below never jumps.
-class _StatusHeader extends StatelessWidget {
-  const _StatusHeader({required this.text, required this.beatInBar, this.beatsPerBar = 4});
-  final String text;
+/// The only status while dancing, in the top bar: the beat in the bar as dots
+/// and, beside them, the running accuracy (or what the session is doing when
+/// it is not scored: watching, recording, getting ready).
+class _Hud extends StatelessWidget {
+  const _Hud(
+      {required this.beatInBar, required this.beatsPerBar, required this.text, this.score = false, this.rec = false});
   final int? beatInBar;
   final int beatsPerBar;
+  final String text;
+
+  /// [text] is the accuracy: large, in the accent colour.
+  final bool score;
+
+  /// A red dot before [text]: recording.
+  final bool rec;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return LayoutBuilder(builder: (context, c) {
-      // Smaller beat dots in a narrow side panel (a phone on its side).
-      final big = c.maxWidth >= 300 ? 22.0 : 16.0, small = c.maxWidth >= 300 ? 14.0 : 10.0;
-      final gap = c.maxWidth >= 300 ? Space.sm : Space.xs;
-      return SizedBox(
-        height: 64,
-        child: Row(
-          children: [
-            Expanded(
-              // Shrinks rather than cuts "Bar 12 of 16" in a narrow side panel or at large text.
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(text, maxLines: 1, style: theme.textTheme.headlineMedium),
-              ),
-            ),
-            Semantics(
-              label: beatInBar == null ? null : 'beat ${beatInBar! + 1} of $beatsPerBar',
-              excludeSemantics: true,
-              child: Row(
-                children: [
-                  for (var i = 0; i < beatsPerBar; i++)
-                    Container(
-                      width: big,
-                      height: big,
-                      margin: EdgeInsets.only(left: gap),
-                      alignment: Alignment.center,
-                      child: Container(
-                        width: beatInBar == i ? big : small,
-                        height: beatInBar == i ? big : small,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: beatInBar == i ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest,
-                        ),
+    final scheme = theme.colorScheme;
+    const big = 18.0, small = 10.0;
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Semantics(
+            label: beatInBar == null ? null : 'beat ${beatInBar! + 1} of $beatsPerBar',
+            excludeSemantics: true,
+            child: Row(
+              children: [
+                for (var i = 0; i < beatsPerBar; i++)
+                  Container(
+                    width: big,
+                    height: big,
+                    margin: EdgeInsets.only(left: i == 0 ? 0 : Space.sm),
+                    alignment: Alignment.center,
+                    child: Container(
+                      width: beatInBar == i ? big : small,
+                      height: beatInBar == i ? big : small,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: beatInBar == i ? scheme.primary : scheme.surfaceContainerHighest,
                       ),
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
+          ),
+          const SizedBox(width: Space.lg),
+          if (rec) ...[
+            Container(width: 10, height: 10, decoration: BoxDecoration(color: scheme.error, shape: BoxShape.circle)),
+            const SizedBox(width: Space.sm),
           ],
-        ),
-      );
-    });
+          Semantics(
+            label: score ? 'Accuracy $text' : null,
+            child: Text(
+              text,
+              style: score
+                  ? theme.textTheme.headlineMedium?.copyWith(color: scheme.primary, height: 1)
+                  : theme.textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -327,168 +340,5 @@ class _ErrorPanel extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-/// Live counts, one per verdict, latest attempt per step. Zero stays neutral.
-class _Tally extends StatelessWidget {
-  const _Tally(this.score);
-  final SessionScore score;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, c) {
-      // A tall side panel: one tile per line. A wide strip (phone portrait):
-      // four across, number over label. In between (phone landscape): 2 × 2.
-      final ratio = c.maxWidth / c.maxHeight;
-      final tall = ratio < 0.8, strip = ratio > 3;
-      Widget tile(Verdict v) => Expanded(child: _tile(context, v, score.count(v), !strip));
-      Widget line(Iterable<Verdict> vs) =>
-          Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [for (final v in vs) tile(v)]);
-      if (tall) {
-        return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch, children: [for (final v in scoredVerdicts) tile(v)]);
-      }
-      if (strip) return line(scoredVerdicts);
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [Expanded(child: line(scoredVerdicts.take(2))), Expanded(child: line(scoredVerdicts.skip(2)))],
-      );
-    });
-  }
-
-  /// [row]: number beside the label (side panel), else stacked (phone strip).
-  Widget _tile(BuildContext context, Verdict v, int n, bool row) {
-    final theme = Theme.of(context);
-    final active = n > 0;
-    final ink = v.ink(context);
-    final color = active ? ink : theme.colorScheme.onSurfaceVariant;
-    Widget content(String count, String label) {
-      final number = Text(count, style: theme.textTheme.display.copyWith(color: color, height: 1.05));
-      final caption = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(v.icon, color: color, size: 20),
-          const SizedBox(width: Space.xs),
-          Text(label, style: theme.textTheme.cardTitle.copyWith(color: color)),
-        ],
-      );
-      return row
-          ? Row(mainAxisSize: MainAxisSize.min, children: [number, const SizedBox(width: Space.md), caption])
-          : Column(mainAxisSize: MainAxisSize.min, children: [number, caption]);
-    }
-
-    return Semantics(
-      label: v.counted(n),
-      excludeSemantics: true,
-      child: Container(
-        margin: const EdgeInsets.all(Space.xs),
-        decoration: BoxDecoration(
-          color: active ? ink.withValues(alpha: 0.14) : theme.colorScheme.surfaceContainer,
-          borderRadius: Radii.mdAll,
-        ),
-        // Tight constraints, so the FittedBox scales the content up to fill the tile.
-        child: FittedBox(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.sm),
-            child: SizedLike(
-              alignment: row ? AlignmentDirectional.centerStart : Alignment.center,
-              sizer: content('00', widestVerdictLabel),
-              child: content('$n', v.labelFor(n)),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Capture mode: a recording indicator and how much each node has sent.
-class _CapturePanel extends StatelessWidget {
-  const _CapturePanel(this.recorder);
-  final SessionRecorder recorder;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final t0 = recorder.t0AppMs;
-    final secs = t0 == null ? 0 : max(0, (DateTime.now().millisecondsSinceEpoch - t0) ~/ 1000);
-    final red = theme.colorScheme.error;
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      alignment: Alignment.topLeft,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.sm),
-            decoration: BoxDecoration(color: red.withValues(alpha: 0.12), borderRadius: Radii.fullAll),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.circle_rounded, color: red, size: 14),
-                const SizedBox(width: Space.sm),
-                Text('REC ${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}',
-                    style: theme.textTheme.titleLarge?.copyWith(color: red, fontWeight: AppType.heavy)),
-              ],
-            ),
-          ),
-          const SizedBox(height: Space.md),
-          for (final r in Role.values)
-            Text(
-                '${footName(r)}: ${recorder.sampleCounts[r] ?? 0} samples · '
-                '${recorder.events.where((e) => e.foot == r).length} steps',
-                style: theme.textTheme.titleMedium),
-          const SizedBox(height: Space.sm),
-          Text('Recording each node for training.', style: theme.textTheme.bodyMedium),
-        ],
-      ),
-    );
-  }
-}
-
-/// Watch first: the step just called, big ("Left: forward"), and the next one.
-class _DemoPanel extends StatelessWidget {
-  const _DemoPanel({required this.session});
-  final DanceSession session;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final now = session.callout;
-    // The chart and the floor map show the steps; the names are left to a
-    // screen reader, so the panel does not repeat them.
-    String say(List<PresetStep> steps) =>
-        steps.map((s) => '${footName(s.foot)}: ${stepLabel(s.stepClass, s.foot)}').join('  ·  ');
-    return LayoutBuilder(builder: (context, c) {
-      final strip = c.maxWidth / max(1.0, c.maxHeight) > 3;
-      return Semantics(
-        liveRegion: true,
-        label: now.isEmpty ? null : say(now),
-        child: Container(
-          padding: EdgeInsets.symmetric(horizontal: Space.lg, vertical: strip ? Space.sm : Space.lg),
-          decoration: BoxDecoration(color: scheme.surfaceContainer, borderRadius: Radii.mdAll),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: strip ? MainAxisAlignment.center : MainAxisAlignment.start,
-            children: [
-              StatusPill(icon: Icons.visibility_rounded, text: 'Watch first: not judged', color: scheme.primary),
-              if (!strip) ...[
-                const SizedBox(height: Space.lg),
-                // Fades out where the panel is short (a phone on its side).
-                Flexible(
-                  child: Text(
-                      'Lift as a step crosses the dashed line; land as it reaches the solid line. '
-                      'The beat is the landing, as on the floor map.',
-                      overflow: TextOverflow.fade,
-                      style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurfaceVariant)),
-                ),
-              ],
-            ],
-          ),
-        ),
-      );
-    });
   }
 }
