@@ -1,0 +1,42 @@
+{
+  "session_id": "20261124-141036-dancer",
+  "dancer": "Aaron",
+  "preset_id": 3,
+  "preset_name": "Basic forward and back",
+  "bpm": 96.0,
+  "mode": "capture",
+  "t0_app_ms": 1795558240203,
+  "segments": [
+    {
+      "from_beat": 1.0,
+      "t0_app_ms": 1795558240203,
+      "bpm": 96.0
+    }
+  ],
+  "nodes": {
+    "L": {
+      "offset_us": -1795557264721593,
+      "fw_version": 4
+    },
+    "R": {
+      "offset_us": -1795555337156627,
+      "fw_version": 4
+    }
+  },
+  "clock_syncs": [
+    {
+      "foot": "L",
+      "offset_us": -1795557264721593,
+      "fw_version": 4,
+      "synced_at_app_ms": 1795558237032
+    },
+    {
+      "foot": "R",
+      "offset_us": -1795555337156627,
+      "fw_version": 4,
+      "synced_at_app_ms": 1795558237461
+    }
+  ],
+  "app_version": "0.1.0",
+  "protocol_version": 1
+}

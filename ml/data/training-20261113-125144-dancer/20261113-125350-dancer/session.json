@@ -1,0 +1,42 @@
+{
+  "session_id": "20261113-125350-dancer",
+  "dancer": "Zoe",
+  "preset_id": 4,
+  "preset_name": "Side to side",
+  "bpm": 96.0,
+  "mode": "capture",
+  "t0_app_ms": 1794603234193,
+  "segments": [
+    {
+      "from_beat": 1.0,
+      "t0_app_ms": 1794603234193,
+      "bpm": 96.0
+    }
+  ],
+  "nodes": {
+    "L": {
+      "offset_us": -1794599027491486,
+      "fw_version": 3
+    },
+    "R": {
+      "offset_us": -1794602812790359,
+      "fw_version": 3
+    }
+  },
+  "clock_syncs": [
+    {
+      "foot": "L",
+      "offset_us": -1794599027491486,
+      "fw_version": 3,
+      "synced_at_app_ms": 1794603230930
+    },
+    {
+      "foot": "R",
+      "offset_us": -1794602812790359,
+      "fw_version": 3,
+      "synced_at_app_ms": 1794603231417
+    }
+  ],
+  "app_version": "0.1.0",
+  "protocol_version": 1
+}

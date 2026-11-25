@@ -1,0 +1,42 @@
+{
+  "session_id": "20261113-125753-dancer",
+  "dancer": "Zoe",
+  "preset_id": 5,
+  "preset_name": "Box step",
+  "bpm": 96.0,
+  "mode": "capture",
+  "t0_app_ms": 1794603475955,
+  "segments": [
+    {
+      "from_beat": 1.0,
+      "t0_app_ms": 1794603475955,
+      "bpm": 96.0
+    }
+  ],
+  "nodes": {
+    "L": {
+      "offset_us": -1794603321598206,
+      "fw_version": 3
+    },
+    "R": {
+      "offset_us": -1794602813102451,
+      "fw_version": 3
+    }
+  },
+  "clock_syncs": [
+    {
+      "foot": "L",
+      "offset_us": -1794603321598206,
+      "fw_version": 3,
+      "synced_at_app_ms": 1794603473362
+    },
+    {
+      "foot": "R",
+      "offset_us": -1794602813102451,
+      "fw_version": 3,
+      "synced_at_app_ms": 1794603473805
+    }
+  ],
+  "app_version": "0.1.0",
+  "protocol_version": 1
+}

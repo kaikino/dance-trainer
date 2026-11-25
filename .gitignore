@@ -19,8 +19,6 @@ ml/__pycache__/
 ml/**/__pycache__/
 ml/*.egg-info/
 ml/runs/
-ml/data/*
-!ml/data/.gitkeep
 ml/data_excluded/
 
 # Editors / OS

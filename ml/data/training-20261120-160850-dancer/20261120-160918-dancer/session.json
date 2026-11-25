@@ -1,0 +1,42 @@
+{
+  "session_id": "20261120-160918-dancer",
+  "dancer": "Aaron",
+  "preset_id": 4,
+  "preset_name": "Side to side",
+  "bpm": 96.0,
+  "mode": "capture",
+  "t0_app_ms": 1795219762378,
+  "segments": [
+    {
+      "from_beat": 1.0,
+      "t0_app_ms": 1795219762378,
+      "bpm": 96.0
+    }
+  ],
+  "nodes": {
+    "L": {
+      "offset_us": -1795219433771384,
+      "fw_version": 4
+    },
+    "R": {
+      "offset_us": -1795215606230189,
+      "fw_version": 4
+    }
+  },
+  "clock_syncs": [
+    {
+      "foot": "L",
+      "offset_us": -1795219433771384,
+      "fw_version": 4,
+      "synced_at_app_ms": 1795219759225
+    },
+    {
+      "foot": "R",
+      "offset_us": -1795215606230189,
+      "fw_version": 4,
+      "synced_at_app_ms": 1795219759630
+    }
+  ],
+  "app_version": "0.1.0",
+  "protocol_version": 1
+}

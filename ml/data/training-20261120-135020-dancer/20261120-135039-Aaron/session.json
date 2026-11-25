@@ -1,0 +1,42 @@
+{
+  "session_id": "20261120-135039-Aaron",
+  "dancer": "Aaron",
+  "preset_id": 5,
+  "preset_name": "Box step",
+  "bpm": 96.0,
+  "mode": "capture",
+  "t0_app_ms": 1795211441898,
+  "segments": [
+    {
+      "from_beat": 1.0,
+      "t0_app_ms": 1795211441898,
+      "bpm": 96.0
+    }
+  ],
+  "nodes": {
+    "L": {
+      "offset_us": -1795210875281125,
+      "fw_version": 4
+    },
+    "R": {
+      "offset_us": -1795211304343219,
+      "fw_version": 4
+    }
+  },
+  "clock_syncs": [
+    {
+      "foot": "L",
+      "offset_us": -1795210875281125,
+      "fw_version": 4,
+      "synced_at_app_ms": 1795211439312
+    },
+    {
+      "foot": "R",
+      "offset_us": -1795211304343219,
+      "fw_version": 4,
+      "synced_at_app_ms": 1795211439767
+    }
+  ],
+  "app_version": "0.1.0",
+  "protocol_version": 1
+}
