@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Train the step classifier with leave-one-dancer-out cross-validation.
 
-Usage: train.py runs/windows.npz [--epochs 40] [--out runs/model.keras]
+Usage: train.py runs/windows.npz [--epochs 40] [--group dancer|session] [--out runs/model.keras]
+
+--group session holds out one recording at a time instead (all you can do
+with a single dancer; it overstates how well a new dancer will do).
 
 Prints per-fold accuracy and a pooled confusion matrix, then trains a final
 model on all data and saves it.
@@ -58,16 +61,17 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("npz")
     ap.add_argument("--epochs", type=int, default=40)
+    ap.add_argument("--group", default="dancer", choices=["dancer", "session"])
     ap.add_argument("--out", default="runs/model.keras")
     a = ap.parse_args()
 
     d = np.load(a.npz)
     x = d["x"].astype(np.float32)  # int8 values as floats; cnn.c on the node feeds the same values
-    y, dancer = d["y"], d["dancer"]
+    y, groups = d["y"], d[a.group]
 
     cm = np.zeros((N_CLASSES, N_CLASSES), dtype=int)
-    for held in np.unique(dancer):
-        tr, te = dancer != held, dancer == held
+    for held in np.unique(groups):
+        tr, te = groups != held, groups == held
         m = build()
         m.fit(augment(x[tr]), y[tr], epochs=a.epochs, batch_size=64, verbose=0)
         pred = m.predict(x[te], verbose=0).argmax(1)

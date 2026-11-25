@@ -471,3 +471,40 @@ def test_stream_at_another_rate_is_put_on_the_104_hz_grid(tmp_path):
     assert W.stream_rate_hz(df) == pytest.approx(W.RATE_HZ, rel=0.001)
     q = df[["qw", "qx", "qy", "qz"]].to_numpy() / 16384.0
     assert np.allclose(np.linalg.norm(q, axis=1), 1, atol=2e-4)     # still unit quaternions
+
+
+def test_features_table_has_one_row_per_window(tmp_path):
+    import features
+    preset = json.loads((ROOT / "presets/basic_step.json").read_text())
+    synth.synth_session("d0", preset, 0, np.random.default_rng(0), tmp_path)
+    d = next(tmp_path.iterdir())
+    label.label_session(d)
+    xs, ys, meta = windows_script.session_windows(d)
+    assert len(meta["window_feet"]) == len(xs) and set(meta["window_feet"]) <= {"L", "R"}
+    npz = {"x": np.stack(xs), "y": np.array(ys), "dancer": np.array(["d0"] * len(xs)),
+           "session": np.array([d.name] * len(xs)), "foot": np.array(meta["window_feet"])}
+    df = features.table(npz)
+    assert len(df) == len(xs)
+    assert list(df.columns[:8]) == list(features.FEATURES)
+    assert df[list(features.FEATURES)].notna().all().all()
+    assert set(df.label_name) <= {"forward", "back", "in_place"}       # basic step's classes
+    assert set(df.foot) == {"L", "R"}
+
+
+def test_routine_mask_has_one_bit_per_step_type():
+    # Routines repeat their steps: adding 1 << class for each step carried into
+    # the next bit (side to side came out as forward, cross, forward out).
+    import train_xgb
+    from dt.protocol import StepClass as S
+    assert train_xgb.masked_argmax(np.array([0.1, 0.2, 0.7]), 0b011) == 1
+    preset = json.loads((ROOT / "presets/side_step.json").read_text())
+    want = (1 << int(S.SIDE_OUT)) | (1 << int(S.SIDE_IN)) | (1 << int(S.IN_PLACE))
+    d = train_xgb.DATA / "_test_mask" / "s1"
+    d.mkdir(parents=True, exist_ok=True)
+    try:
+        (d / "session.json").write_text(json.dumps({"preset_id": preset["id"]}))
+        assert train_xgb.routine_mask("s1") == want
+    finally:
+        (d / "session.json").unlink()
+        d.rmdir()
+        d.parent.rmdir()

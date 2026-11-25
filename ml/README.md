@@ -17,6 +17,8 @@ pip install -r requirements.txt
 | – | `simtrain.py` | **stand-in until real data**: CNN trained on both simulators through the node pipeline; reports leave-one-simulator-out and CNN vs rule vs hybrid on the held-out seed; writes `runs/sim_windows.npz`, `runs/model_sim.keras` (copy to `runs/model.keras` / `runs/windows.npz`, then step 6). The firmware default stays `CLASSIFIER=rules`: on a simulator the CNN never saw it scores 39% vs the rule's 66% (12 classes) |
 | 5 | `train.py runs/windows.npz` | leave-one-dancer-out CV, confusion matrices, `runs/model.keras` |
 | 6 | `export.py runs/model.keras runs/windows.npz` | `firmware/dance_node/src/model_weights.h` (float weights for `cnn.c`) and selftest vectors |
+| 5x | `features.py runs/windows.npz -o runs/features.csv` | the 8 rule features per step (`rules_features_t`) |
+| 5x | `train_xgb.py runs/features.csv --windows runs/windows.npz -o runs/xgb` | XGBoost on those features + foot: leave-one-session-out vs the rules, `runs/xgb/model.json` |
 
 `dt/` is the shared package: `protocol.py` (enums, must match `dt_protocol.h`),
 `windows.py` (window geometry — must match `stepdet.h`), `baseline.py` (must
