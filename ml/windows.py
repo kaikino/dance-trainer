@@ -3,11 +3,14 @@
 
 Usage: windows.py data/* -o runs/windows.npz
 
-Output arrays: x (N, WIN_LEN, 9) int8, y (N,) int, dancer (N,) str, session (N,) str.
+Output arrays: x (N, WIN_LEN, 9) int8, y (N,) int, dancer (N,) str, session (N,) str,
+foot (N,) str ("L"/"R").
 Skips sessions whose mode is not capture, rows with label_class < 0, and rows
 that are node-synthesised missed beats (verdict == missed).
 Strikes are located by the t_app_ms column when the export has it, else by the
-u32 node time, unwrapped so a session across the ~71.6 min wrap works.
+u32 node time, unwrapped so a session across the ~71.6 min wrap works. A stream
+with dropped samples, or at another rate, is first put on the even 104 Hz grid
+(dt/windows.py resample_to_rate; a real gap is never filled).
 """
 import argparse
 import json
@@ -21,7 +24,8 @@ from dt.session import is_capture, usable_events
 
 
 def session_windows(d: Path) -> tuple[list[np.ndarray], list[int], dict]:
-    """Windows and labels for one session directory ([] if it is skipped)."""
+    """Windows and labels for one session directory ([] if it is skipped).
+    meta["window_feet"] lists each window's foot, in order."""
     meta = json.loads((d / "session.json").read_text())
     if not is_capture(meta):
         print(f"{d.name}: mode {meta.get('mode')!r}, skipped")
@@ -29,12 +33,16 @@ def session_windows(d: Path) -> tuple[list[np.ndarray], list[int], dict]:
     ev = pd.read_csv(d / "events.csv", dtype={"foot": str, "label_source": str}, keep_default_na=False)
     ev["label_class"] = pd.to_numeric(ev["label_class"], errors="coerce").fillna(-1).astype(int)
     streams = {f: W.load_stream(d / f"{f}.csv") for f in ("L", "R") if (d / f"{f}.csv").exists()}
+    for f, df in streams.items():
+        if "resampled_from_hz" in df.attrs:
+            print(f"{d.name} {f}: put on the even {W.RATE_HZ} Hz grid "
+                  f"(was {df.attrs['resampled_from_hz']:.1f} Hz with dropped samples or another rate)")
     keep = usable_events(ev) & (ev["label_class"] >= 0)
     by_app = "t_app_ms" in ev.columns
     if by_app:
         ev["t_app_ms"] = pd.to_numeric(ev["t_app_ms"], errors="coerce")
 
-    xs, ys = [], []
+    xs, ys, feet = [], [], []
     for foot, rows in ev.groupby("foot", sort=False):
         df = streams.get(foot)
         if df is None or df.empty:
@@ -56,7 +64,9 @@ def session_windows(d: Path) -> tuple[list[np.ndarray], list[int], dict]:
                 continue
             xs.append(w)
             ys.append(int(row["label_class"]))
+            feet.append(str(foot))
     print(f"{d.name}: {len(ev)} events, {len(xs)} windows")
+    meta["window_feet"] = feet
     return xs, ys, meta
 
 
@@ -66,19 +76,21 @@ def main() -> None:
     ap.add_argument("-o", "--out", default="runs/windows.npz")
     a = ap.parse_args()
 
-    xs, ys, dancers, sessions = [], [], [], []
+    xs, ys, dancers, sessions, feet = [], [], [], [], []
     for s in a.sessions:
         wx, wy, meta = session_windows(Path(s))
         xs += wx
         ys += wy
         dancers += [meta.get("dancer", "")] * len(wx)
         sessions += [meta.get("session_id", Path(s).name)] * len(wx)
+        feet += meta.get("window_feet", [""] * len(wx))
 
     if not xs:
         raise SystemExit("no windows: nothing labeled and usable in these sessions (run label.py first?)")
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(out, x=np.stack(xs), y=np.array(ys), dancer=np.array(dancers), session=np.array(sessions))
+    np.savez_compressed(out, x=np.stack(xs), y=np.array(ys), dancer=np.array(dancers), session=np.array(sessions),
+                        foot=np.array(feet))
     print(f"{len(xs)} windows → {out}")
 
 

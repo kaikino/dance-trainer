@@ -110,7 +110,10 @@ t_strike_node_us,foot,step_class,confidence,expected_class,timing_err_ms,verdict
 - `label_class` is the training label: in capture mode the app fills it with the
   preset's expected class at the nearest beat (`label_source = capture`);
   a human can overwrite it from video (`label_source = manual`); `-1` = unusable.
-  `ml/label.py` keeps an app label that matches its segment-aware schedule match
-  and sets one that disagrees to `-1` with `label_source = conflict`. Rows with
+  `ml/label.py` recomputes every non-manual label: it measures how late each
+  foot lands after the beat in that session (dancers land 100–300 ms behind the
+  beat, steadily) and matches each strike to the step scheduled at beat + lag,
+  within ±150 ms. The app's live label ignores that lag, so it can miss late
+  steps or give a strike the next beat's step. Rows with
   `verdict = missed` or `step_class = 0`, and sessions with `mode` other than
   `capture`, are not used for training.

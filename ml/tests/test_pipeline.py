@@ -20,6 +20,7 @@ import label  # noqa: E402
 import synth  # noqa: E402
 import windows as windows_script  # noqa: E402
 from dt import windows as W  # noqa: E402
+from dt.session import segments  # noqa: E402
 from dt.protocol import StepClass, Verdict  # noqa: E402
 
 U32 = 1 << 32
@@ -185,18 +186,21 @@ def test_label_only_matches_beats_from_segment_start(tmp_path):
     assert labels(d) == [FWD, FWD]
 
 
-def test_label_keeps_app_capture_labels(tmp_path):
+def test_label_recomputes_app_capture_labels(tmp_path):
+    """The app labels live without the dancer's lag: its labels are recomputed
+    from the schedule (here, too few strikes to measure a lag: lag 0, ±MAX_MS).
+    Manual labels are never touched."""
     evs = [dict(e) for e in SEG_EVENTS]
-    evs[0].update(label_class=FWD, label_source="capture")     # agrees
-    evs[3].update(label_class=INP, label_source="capture")     # disagrees → conflict, -1
+    evs[0].update(label_class=FWD, label_source="capture")     # agrees: stays
+    evs[3].update(label_class=INP, label_source="capture")     # disagrees: corrected
     evs[4].update(label_class=BACK, label_source="manual")     # manual: untouched
     d = make_session(tmp_path / "s", evs, SEGS)
     label.label_session(d)
     e = pd.read_csv(d / "events.csv", keep_default_na=False)
     want = list(SEG_TRUTH)
-    want[3], want[4] = -1, BACK
+    want[4] = BACK
     assert e["label_class"].tolist() == want
-    assert e["label_source"].tolist()[:5] == ["capture", "capture", "capture", "conflict", "manual"]
+    assert e["label_source"].tolist()[:5] == ["capture", "capture", "capture", "capture", "manual"]
     label.label_session(d)                                       # idempotent
     assert labels(d) == want
 
@@ -345,3 +349,125 @@ def test_session_that_never_started_is_skipped(tmp_path, capsys):
     label.label_session(d)
     assert "skipped" in capsys.readouterr().out
     assert (d / "events.csv").read_text() == header
+
+
+
+# ---------------------------------------------------------------- late dancers ---
+# basic_step.json (id 3): L forward 1, R in_place 2, L back 3, R back 5,
+# L in_place 6, R forward 7; 8 beats a loop. At 96 bpm a beat is 625 ms.
+BASIC = [(1, "L", FWD), (2, "R", INP), (3, "L", BACK), (5, "R", BACK), (6, "L", INP), (7, "R", FWD)]
+
+
+def late_session(tmp_path, lag_ms: dict, loops: int = 3, called=None):
+    """Every step danced `lag_ms[foot]` late, with a little jitter."""
+    segs = [seg(1, T0, 96.0)]
+    rng = np.random.default_rng(1)
+    evs, truth = [], []
+    for k in range(loops):
+        for b, f, cls in BASIC:
+            t = beat_t(segs[0], b + 8 * k) + lag_ms[f] + rng.uniform(-40, 40)
+            evs.append(ev(f, t, called if called is not None else cls))
+            truth.append(cls)
+    order = np.argsort([e["t_app_ms"] for e in evs], kind="stable")
+    return make_session(tmp_path / "s", [evs[i] for i in order], segs), [truth[i] for i in order]
+
+
+def test_late_dancer_is_labelled_against_the_measured_lag(tmp_path):
+    # 300 ms late is outside the ±250 ms window round the beat: before the lag
+    # was measured these all came out -1.
+    d, truth = late_session(tmp_path, {"L": 300, "R": 300})
+    label.label_session(d)
+    assert labels(d) == truth
+
+
+def test_lag_is_measured_per_foot(tmp_path):
+    # One foot late, the other on time (separately synced clocks, say).
+    d, truth = late_session(tmp_path, {"L": 280, "R": 0})
+    label.label_session(d)
+    assert labels(d) == truth
+
+
+def test_lag_comes_from_timing_not_from_what_the_node_called(tmp_path):
+    # The node calls every step "kick": the labels still follow the schedule.
+    d, truth = late_session(tmp_path, {"L": 250, "R": 250}, called=int(StepClass.KICK))
+    label.label_session(d)
+    assert labels(d) == truth
+
+
+def test_estimate_lag_finds_the_shift(tmp_path):
+    segs = segments({"segments": [seg(1, T0, 96.0)], "bpm": 96.0})
+    sched = [(b + 8 * k, f, c) for k in range(3) for b, f, c in BASIC]
+    times = [beat_t(seg(1, T0, 96.0), b) + 220 for b, f, _ in sched if f == "L"]
+    assert label.estimate_lag(sched, segs, "L", times) == pytest.approx(220, abs=LAG_STEP)
+    assert label.estimate_lag(sched, segs, "L", times[:3]) is None   # too few to measure
+
+
+LAG_STEP = label.LAG_STEP_MS
+
+
+# ---------------------------------------------------------------- uneven streams ---
+def stream_csv(path: Path, t_ms: np.ndarray) -> Path:
+    """A capture stream sampled at the given app times: smooth accel and gyro,
+    a quaternion turning slowly about z, in the app's integer units."""
+    s = t_ms / 1000.0
+    ang = 0.3 * np.sin(2 * np.pi * 0.5 * s)
+    df = pd.DataFrame({
+        "t_node_us": np.rint(5_000_000 + (t_ms - t_ms[0]) * 1000).astype(np.int64),
+        "ax": np.rint(300 * np.sin(2 * np.pi * 2 * s)).astype(int),
+        "ay": np.rint(200 * np.cos(2 * np.pi * 3 * s)).astype(int),
+        "az": np.rint(1000 + 50 * np.sin(2 * np.pi * s)).astype(int),
+        "gx": np.rint(800 * np.sin(2 * np.pi * 1.5 * s)).astype(int),
+        "gy": np.rint(600 * np.cos(2 * np.pi * 2.5 * s)).astype(int),
+        "gz": np.rint(400 * np.sin(2 * np.pi * 0.7 * s)).astype(int),
+        "qw": np.rint(16384 * np.cos(ang / 2)).astype(int), "qx": 0, "qy": 0,
+        "qz": np.rint(16384 * np.sin(ang / 2)).astype(int),
+        "t_app_ms": np.round(T0 + t_ms, 1),
+    })
+    df.to_csv(path, index=False)
+    return path
+
+
+PERIOD = 1000.0 / W.RATE_HZ
+
+
+def test_dropped_samples_are_filled_so_windows_survive(tmp_path):
+    # The right node on the tablet lost about one sample in twenty: every window
+    # spanned too long and cut_app() dropped all of them.
+    full = np.arange(0, 6000, PERIOD)
+    kept = np.delete(full, np.arange(10, len(full), 20))
+    df = W.load_stream(stream_csv(tmp_path / "R.csv", kept))
+    t = df["t_app_ms"].to_numpy()
+    assert df.attrs.get("resampled_from_hz")
+    assert np.allclose(np.diff(t), PERIOD, atol=0.05)              # evenly spaced again
+    raw = pd.read_csv(tmp_path / "R.csv")
+    assert W.cut_app(raw, T0 + 3000, "R") is None                   # as recorded: rejected
+    w = W.cut_app(df, T0 + 3000, "R")
+    assert w is not None
+    ref = W.load_stream(stream_csv(tmp_path / "full.csv", full))   # what it would have been
+    np.testing.assert_allclose(w.astype(int), W.cut_app(ref, T0 + 3000, "R").astype(int), atol=2)
+
+
+def test_a_real_gap_is_kept_not_filled(tmp_path):
+    t = np.concatenate([np.arange(0, 3000, PERIOD), np.arange(3400, 6000, PERIOD)])
+    t = np.delete(t, [5, 50])                                       # two dropped samples too
+    df = W.load_stream(stream_csv(tmp_path / "R.csv", t))
+    tt = df["t_app_ms"].to_numpy() - T0
+    assert not ((tt > 3000) & (tt < 3400)).any()                    # nothing invented in the gap
+    assert W.cut_app(df, T0 + 3100, "R") is None                    # a window across it is dropped
+
+
+def test_even_stream_is_left_alone(tmp_path):
+    t = np.arange(0, 3000, PERIOD)
+    path = stream_csv(tmp_path / "L.csv", t)
+    df = W.load_stream(path)
+    assert "resampled_from_hz" not in df.attrs
+    pd.testing.assert_frame_equal(df.reset_index(drop=True)[["ax", "gz", "qw"]],
+                                  pd.read_csv(path)[["ax", "gz", "qw"]])
+
+
+def test_stream_at_another_rate_is_put_on_the_104_hz_grid(tmp_path):
+    df = W.load_stream(stream_csv(tmp_path / "R.csv", np.arange(0, 3000, 10.0)))   # 100 Hz
+    assert df.attrs["resampled_from_hz"] == pytest.approx(100, abs=0.5)
+    assert W.stream_rate_hz(df) == pytest.approx(W.RATE_HZ, rel=0.001)
+    q = df[["qw", "qx", "qy", "qz"]].to_numpy() / 16384.0
+    assert np.allclose(np.linalg.norm(q, axis=1), 1, atol=2e-4)     # still unit quaternions

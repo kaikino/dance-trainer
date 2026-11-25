@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 
 RATE_HZ = 104          # LSM6DS3 ODR; the firmware takes every sample
+RATE_TOL = 0.02        # a stream more than 2 % off RATE_HZ is resampled onto it (load_stream)
+HOLE_PERIODS = 1.5     # a step longer than this many periods is a dropped sample: filled in ...
+GAP_PERIODS = 3.5      # ... up to this many; further apart is a break, never filled in
 WIN_PRE = 100          # ≈0.96 s before the strike: a slow swing plus the stance before it
 WIN_POST = 40          # ≈0.38 s after: the foot settling (heel drop, weight transfer; rules.c needs it still)
 WIN_LEN = WIN_PRE + WIN_POST
@@ -79,8 +82,86 @@ def load_stream(path) -> pd.DataFrame:
     df = pd.read_csv(path)
     if has_app_time(df):
         df = load_stream_frame(df)
-        return df.assign(t_node_us=unwrap_u32(df["t_node_us"].to_numpy()))
-    return _monotonic(df)
+        df = df.assign(t_node_us=unwrap_u32(df["t_node_us"].to_numpy()))
+    else:
+        df = _monotonic(df)
+    return resample_to_rate(df)
+
+
+def stream_rate_hz(df: pd.DataFrame) -> float:
+    """Samples per second, from the median row spacing (app time if present)."""
+    t = _times_ms(df)
+    d = np.diff(t)
+    d = d[d > 0]
+    return 1000.0 / float(np.median(d)) if len(d) else float("nan")
+
+
+def _times_ms(df: pd.DataFrame) -> np.ndarray:
+    if has_app_time(df):
+        return pd.to_numeric(df["t_app_ms"], errors="coerce").to_numpy(dtype=np.float64)
+    return df["t_node_us"].to_numpy(dtype=np.float64) / 1000.0
+
+
+SAMPLE_COLS = ["ax", "ay", "az", "gx", "gy", "gz", "qw", "qx", "qy", "qz"]
+
+
+def resample_to_rate(df: pd.DataFrame, hz: float = RATE_HZ) -> pd.DataFrame:
+    """A stream with dropped samples, or at another rate, put on the evenly spaced
+    `hz` grid the windows and the firmware assume. Windows are WIN_LEN rows, so
+    a stream missing rows covers too long a stretch of time and cut_app() takes
+    it for lost data and drops the window (the right node on the first tablet
+    recordings lost about one sample in twenty: none of its windows survived).
+
+    Unchanged when the rate is within RATE_TOL of `hz` and no step between rows
+    is a dropped sample (over HOLE_PERIODS periods), or when any sample cell is
+    empty (older exports with half batches). Otherwise each unbroken run of rows
+    (no step over GAP_PERIODS periods) is interpolated linearly onto a grid of
+    1/hz steps from its first row: short holes are filled, a longer gap stays a
+    gap.
+    Quaternions are kept on one hemisphere before interpolating and normalised
+    after, in the file's ×16384 integers. df.attrs["resampled_from_hz"] records
+    the original rate."""
+    if len(df) < 2 or df[SAMPLE_COLS].isna().to_numpy().any():
+        return df
+    rate = stream_rate_hz(df)
+    if not np.isfinite(rate):
+        return df
+    t = _times_ms(df)
+    steps = np.diff(t) * rate / 1000.0               # in periods of the stream's own rate
+    holes = ((steps > HOLE_PERIODS) & (steps <= GAP_PERIODS)).any()
+    if abs(rate / hz - 1.0) <= RATE_TOL and not holes:
+        return df
+    vals = df[SAMPLE_COLS].to_numpy(dtype=np.float64)
+    q = vals[:, 6:10]
+    flip = np.ones(len(q))
+    for i in range(1, len(q)):        # q and -q are the same turn: keep neighbours on one side
+        flip[i] = flip[i - 1] * (1.0 if np.dot(q[i], q[i - 1]) >= 0 else -1.0)
+    vals[:, 6:10] = q * flip[:, None]
+    t_node = df["t_node_us"].to_numpy(dtype=np.float64)
+    breaks = np.where(np.diff(t) > GAP_PERIODS * 1000.0 / rate)[0] + 1
+    step = 1000.0 / hz
+    parts = []
+    for seg in np.split(np.arange(len(t)), breaks):
+        if len(seg) < 2:
+            continue
+        ts = t[seg]
+        grid = np.arange(ts[0], ts[-1] + 1e-9, step)
+        cols = {c: np.interp(grid, ts, vals[seg, k]) for k, c in enumerate(SAMPLE_COLS)}
+        qq = np.stack([cols[c] for c in ("qw", "qx", "qy", "qz")], axis=1)
+        qq /= np.linalg.norm(qq, axis=1, keepdims=True)
+        scale = QUAT_SCALE if np.nanmax(np.abs(q)) > 1.5 else 1.0
+        for k, c in enumerate(("qw", "qx", "qy", "qz")):
+            cols[c] = qq[:, k] * scale
+        part = {"t_node_us": np.rint(np.interp(grid, ts, t_node[seg])).astype(np.int64)}
+        for c in SAMPLE_COLS:
+            # Same integer units as the export (mg, dps × 10, quaternion × 16384).
+            part[c] = np.rint(cols[c]).astype(np.int64) if pd.api.types.is_integer_dtype(df[c]) else cols[c]
+        if has_app_time(df):
+            part["t_app_ms"] = grid
+        parts.append(pd.DataFrame(part))
+    out = pd.concat(parts, ignore_index=True)[[c for c in df.columns if c in parts[0].columns]]
+    out.attrs["resampled_from_hz"] = rate
+    return out
 
 
 def _monotonic(df: pd.DataFrame) -> pd.DataFrame:

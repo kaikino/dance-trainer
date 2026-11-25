@@ -21,6 +21,7 @@ ml/*.egg-info/
 ml/runs/
 ml/data/*
 !ml/data/.gitkeep
+ml/data_excluded/
 
 # Editors / OS
 .DS_Store
